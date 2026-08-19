@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "buildwindow": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "python", "-m", "server.main"]
+    },
+    "openweather": {
+      "type": "stdio",
+      "command": "mcp-openweather",
+      "args": [],
+      "env": {
+        "OWM_API_KEY": "${OWM_API_KEY}"
+      }
+    }
+  }
+}

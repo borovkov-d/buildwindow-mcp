@@ -1,0 +1,149 @@
+{
+  "schema_version": "1.0",
+  "work_types": [
+    {
+      "code": "concrete_pour",
+      "name": "Concrete pouring",
+      "category": "concrete",
+      "temp_min_c": 5,
+      "temp_max_c": 30,
+      "wind_max_ms": 15,
+      "humidity_max_pct": 95,
+      "precipitation_allowed": false,
+      "base_curing_hours": 168,
+      "reference_note": "Fresh concrete hydration requires temperatures above 5 C to avoid ice damage to the paste and below 30 C to limit rapid moisture loss and thermal cracking; surface water intrusion during placement compromises the water-cement ratio."
+    },
+    {
+      "code": "concrete_finishing",
+      "name": "Concrete surface finishing",
+      "category": "concrete",
+      "temp_min_c": 5,
+      "temp_max_c": 30,
+      "wind_max_ms": 10,
+      "humidity_max_pct": 90,
+      "precipitation_allowed": false,
+      "base_curing_hours": null,
+      "reference_note": "Surface finishing operations require the same temperature band as placement; wind above 10 m/s accelerates surface moisture loss faster than bleed water can replace it, causing plastic shrinkage cracking."
+    },
+    {
+      "code": "screed_pour",
+      "name": "Floor screed pouring",
+      "category": "concrete",
+      "temp_min_c": 5,
+      "temp_max_c": 30,
+      "wind_max_ms": 10,
+      "humidity_max_pct": 95,
+      "precipitation_allowed": false,
+      "base_curing_hours": 168,
+      "reference_note": "Screed layers are thinner than structural pours and lose surface moisture faster, so the wind limit is tighter than concrete_pour; the temperature and curing requirements otherwise mirror general cementitious placement."
+    },
+    {
+      "code": "masonry",
+      "name": "Masonry laying",
+      "category": "concrete",
+      "temp_min_c": 5,
+      "temp_max_c": 35,
+      "wind_max_ms": 15,
+      "humidity_max_pct": 95,
+      "precipitation_allowed": false,
+      "base_curing_hours": 72,
+      "reference_note": "Mortar bedding needs above 5 C to cure without frost damage; masonry units have lower thermal mass than a concrete pour, so the upper temperature limit is relaxed to 35 C."
+    },
+    {
+      "code": "exterior_painting",
+      "name": "Exterior painting",
+      "category": "finishing",
+      "temp_min_c": 10,
+      "temp_max_c": 30,
+      "wind_max_ms": 8,
+      "humidity_max_pct": 80,
+      "precipitation_allowed": false,
+      "base_curing_hours": 24,
+      "reference_note": "Solvent evaporation and film formation degrade below 10 C and above 80% relative humidity."
+    },
+    {
+      "code": "facade_plastering",
+      "name": "Facade plastering",
+      "category": "finishing",
+      "temp_min_c": 5,
+      "temp_max_c": 30,
+      "wind_max_ms": 10,
+      "humidity_max_pct": 85,
+      "precipitation_allowed": false,
+      "base_curing_hours": 72,
+      "reference_note": "Plaster set and adhesion fail below 5 C, and wind above 10 m/s combined with humidity above 85% causes uneven surface drying and shrinkage cracking on the facade."
+    },
+    {
+      "code": "waterproofing",
+      "name": "Waterproofing coating",
+      "category": "finishing",
+      "temp_min_c": 5,
+      "temp_max_c": 30,
+      "wind_max_ms": 8,
+      "humidity_max_pct": 80,
+      "precipitation_allowed": false,
+      "base_curing_hours": 48,
+      "reference_note": "Waterproofing coatings require a dry, stable substrate; wind above 8 m/s and humidity above 80% prevent proper film curing and risk trapping moisture beneath the membrane."
+    },
+    {
+      "code": "roofing_membrane",
+      "name": "Roofing membrane installation",
+      "category": "roofing",
+      "temp_min_c": 5,
+      "temp_max_c": 35,
+      "wind_max_ms": 10,
+      "humidity_max_pct": 85,
+      "precipitation_allowed": false,
+      "base_curing_hours": null,
+      "reference_note": "Membrane seams rely on adhesive or heat-welded bonds that fail to set below 5 C; wind above 10 m/s makes handling large membrane sheets on an elevated roof unsafe."
+    },
+    {
+      "code": "bitumen_roofing",
+      "name": "Bitumen roofing application",
+      "category": "roofing",
+      "temp_min_c": 5,
+      "temp_max_c": 30,
+      "wind_max_ms": 8,
+      "humidity_max_pct": 80,
+      "precipitation_allowed": false,
+      "base_curing_hours": null,
+      "reference_note": "Hot bitumen application involves open flame or molten material; the tighter wind limit reflects both flame stability and the safety risk of handling hot material at height in gusty conditions."
+    },
+    {
+      "code": "structural_welding",
+      "name": "Structural steel welding",
+      "category": "welding",
+      "temp_min_c": -20,
+      "temp_max_c": 40,
+      "wind_max_ms": 12,
+      "humidity_max_pct": 90,
+      "precipitation_allowed": false,
+      "base_curing_hours": null,
+      "reference_note": "Welding generates its own heat and tolerates low ambient temperature, but wind above 12 m/s disperses shielding gas and destabilizes the arc, degrading weld quality."
+    },
+    {
+      "code": "asphalt_paving",
+      "name": "Asphalt paving",
+      "category": "paving",
+      "temp_min_c": 10,
+      "temp_max_c": 35,
+      "wind_max_ms": 15,
+      "humidity_max_pct": 90,
+      "precipitation_allowed": false,
+      "base_curing_hours": 48,
+      "reference_note": "Asphalt must be compacted before it cools below its workable temperature; ambient temperatures below 10 C cause the mat to lose heat too quickly for proper compaction."
+    },
+    {
+      "code": "excavation",
+      "name": "Excavation",
+      "category": "earthworks",
+      "temp_min_c": -10,
+      "temp_max_c": 40,
+      "wind_max_ms": 20,
+      "humidity_max_pct": 100,
+      "precipitation_allowed": true,
+      "base_curing_hours": null,
+      "reference_note": "Earthmoving equipment operates across a wide temperature and humidity range; precipitation is permitted since it does not by itself halt excavation, though the illustrative thresholds do not model soil saturation or slope stability effects."
+    }
+  ]
+}
