@@ -154,7 +154,11 @@ entirely below that threshold. Real captured result:
 
 **Point out:** this is genuine evidence that `validate_work_window`'s
 output changes what the engineer is told, and that the specific breached
-constraint(s) it names are real, not guessed by the model.
+constraint(s) it names are real, not guessed by the model. (These
+numbers are a real captured run — a fresh live run on a different day
+will show different real weather and may differ slightly, e.g. a
+different humidity reading; for numbers guaranteed to reproduce exactly,
+use 4c's replay mode instead.)
 
 **4c. Replay mode — fully offline, no network or key needed at all.**
 Weather changes, and a demo shouldn't depend on the internet working on
@@ -195,48 +199,20 @@ same schedule, relative to those dates, as it did the day it was
 captured — nothing in this doc needs updating just because time has
 passed.
 
-**Proving both connections discover fine with no network, a separate
-way.** Replay mode's own `get_mcp_status()` output (above) only ever
-shows `buildwindow`, since `openweather` is deliberately omitted from
-the session entirely — so it can't be used to show *both* connections
-at once. If asked to prove the `openweather` binary itself still starts
-and answers MCP discovery with zero network access (as opposed to just
-"the agent chooses not to connect it"), run `list_tools()` directly
-against both binaries with the low-level client, no LLM session
-involved at all:
+**Proving both connections discover fine even with an invalid API key, a
+separate way.** Replay mode's own `get_mcp_status()` output (above) only
+ever shows `buildwindow`, since `openweather` is deliberately omitted
+from the session entirely — so it can't be used to show *both*
+connections at once. If asked to prove the `openweather` binary itself
+still starts and answers MCP discovery without a working key (as
+opposed to just "the agent chooses not to connect it"), run:
 
 ```
-uv run python
-```
-
-```python
-import asyncio, os
-from agent.main import _load_mcp_servers, PROJECT_ROOT
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
-
-async def list_tools(name, config):
-    env = dict(os.environ)
-    for k, v in (config.get("env") or {}).items():
-        env[k] = os.path.expandvars(v)
-    params = StdioServerParameters(
-        command=config["command"], args=config.get("args", []),
-        env=env, cwd=str(PROJECT_ROOT),
-    )
-    async with stdio_client(params) as (r, w):
-        async with ClientSession(r, w) as session:
-            await session.initialize()
-            tools = await session.list_tools()
-            print(name, [t.name for t in tools.tools])
-
-servers = _load_mcp_servers()
-asyncio.run(list_tools("buildwindow", servers["buildwindow"]))
-asyncio.run(list_tools("openweather", servers["openweather"]))
+uv run python scripts/list_tools.py
 ```
 
 **Real captured output, run this phase with a deliberately broken
-`OWM_API_KEY`** (`os.environ["OWM_API_KEY"] = "GARBAGE_BROKEN_KEY_00000"`
-before calling `_load_mcp_servers()`):
+`OWM_API_KEY` set in the environment:**
 
 ```
 buildwindow ['lookup_work_requirements', 'validate_work_window', 'estimate_curing_time', 'plan_work_schedule']
@@ -244,13 +220,18 @@ openweather ['weather']
 ```
 
 Both connections answer `list_tools()` instantly with a broken key in
-place — direct proof that MCP tool *discovery* (`initialize` +
-`list_tools`) never touches the OpenWeather HTTP API at all; only an
-actual `call_tool("weather", ...)` does. This is a separate, stronger
-claim than replay mode's own "openweather absent from discovery" —
-it shows the connection genuinely *can* be made with zero network
-dependency, not just that this project chooses not to make it in replay
-mode.
+place — direct evidence that MCP tool *discovery* (`initialize` +
+`list_tools`) does not depend on a valid key, since only an actual
+`call_tool("weather", ...)` reaches the OpenWeather HTTP API. **What
+this does *not* prove:** this machine's real network adapter was left
+on for this test (disabling it was judged too disruptive a
+machine-wide action to take just to document one claim more strongly,
+and wasn't independently re-run here) — so "no network access at all"
+is not a verified claim, only "no valid API key required." It remains
+possible that `list_tools()` makes some network-independent local
+check the OpenWeather binary happens to perform at startup; nothing in
+the binary's own source (see `docs/tool-contracts.md`) suggested one,
+but this specific run didn't rule it out by cutting the adapter.
 
 ---
 

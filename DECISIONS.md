@@ -582,3 +582,31 @@ Format: `- <question> — <decision> — <why> — <alternative rejected>`.
   behavior on replay; documented as a one-line note in
   `docs/demo-checklist.md` steps 4a/4c rather than left as a question a
   grader might otherwise have to answer themselves.
+
+## Phase 8 — submission-prep cleanups
+
+- **The offline-discovery snippet moved from an inline code block in
+  `docs/demo-checklist.md` step 4c into `scripts/list_tools.py`** — a
+  real, tracked, `ruff`/`black`-clean file instead of copy-pasted prose
+  a reader would have to paste into a REPL themselves. Step 4c now names
+  one command (`uv run python scripts/list_tools.py`); re-ran it live
+  with a deliberately broken `OWM_API_KEY` and pasted its real output
+  into the doc, rather than reusing the previous phase's already-correct
+  captured numbers unverified.
+- **Weakened step 4c's "with zero network access" claim to what was
+  actually tested.** The real test only proves `list_tools()` succeeds
+  without a *valid API key* — it does not prove the machine had no
+  network access at all, since the network adapter was left on.
+  Disabling the adapter to test the stronger claim was considered and
+  rejected: it's a machine-wide, disruptive action (breaks every other
+  process's network access for the duration, plus on Windows normally
+  needs elevated privileges) taken solely to strengthen one
+  documentation sentence, not something this phase's scope calls for.
+  The doc now says plainly what was and wasn't verified, instead of
+  asserting the stronger, untested claim.
+- **Step 4b now states explicitly that its numbers are one real
+  captured run, not reproducible on demand** — a live run on a
+  different day will see different real weather (a different humidity
+  reading, most likely, given how close 87-93% observed across two
+  different live runs already was) and pointing to 4c's replay mode for
+  numbers that reproduce exactly.
