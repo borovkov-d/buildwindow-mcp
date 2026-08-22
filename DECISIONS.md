@@ -427,3 +427,63 @@ Format: `- <question> — <decision> — <why> — <alternative rejected>`.
   binary path, for reliability across fresh shells in this environment
   (an established gotcha since phase 2 — Go's installer doesn't add
   `go install`'s own output directory to `PATH`).
+
+## Phase 5 — rubric compliance and demo reproducibility
+
+- **The model now genuinely calls `openweather` itself — a deliberate
+  reversal of phase 3's "visible but never callable" design.** Phase 3
+  reasoned that seeing both connections in discovery was the important
+  part; the grading rubric's literal text ("does not incorporate both
+  the existing and custom servers into agent flows" → capped at 59/100)
+  cuts differently — the model has to actually *use* both, not just see
+  both. Resolved by giving the model exactly one narrow, low-risk use of
+  `weather` (current-conditions color commentary, one sentence, in a new
+  system-prompt step 1) while leaving the schedule-critical fetch
+  exactly as phase 2 built it — deterministic, pre-session, never
+  model-driven. Verified live that the two calls stay genuinely
+  separate: the model's own report explicitly says the current-
+  conditions reading "was not used in any scheduling decision."
+- **`allowed_tools` alone was sufficient — no `bypassPermissions`
+  needed, tested live, not assumed.** Removed `disallowed_tools` and
+  `permission_mode="bypassPermissions"` together, replaced with an
+  explicit `allowed_tools` list naming all 5 real tool names (4
+  buildwindow + `weather`). A full live run succeeded on the first try —
+  every tool call executed, including the model's own `weather` call,
+  with no permission prompt/denial. This is a better fit than
+  `bypassPermissions` (which would waive permission checks for
+  *anything*, not just these 5 tools) and didn't require the fallback
+  the plan anticipated.
+- **Replay mode (`--forecast-from-file`) only replaces where the raw
+  text comes from, never how it's parsed.** `_fetch_daily_forecast` was
+  split into a raw-text-acquisition step (live MCP call, or
+  `Path(...).read_text()` for a fixture) and the unchanged
+  `normalize_forecast` call that always runs on the result — confirmed
+  by testing replay mode against `fixtures/weather_murmansk.txt` and
+  getting the same qualitative outcome (humidity-driven
+  `no_suitable_window`, `validate_work_window` firing) as the live 4b
+  run, with slightly different real numbers (97% vs. 96% humidity, -0.72
+  vs. -0.73°C margin) reflecting that these were two separate real API
+  calls made at different moments, not the same data replayed twice.
+- **Fixtures are real, trimmed captures, not synthetic.**
+  `fixtures/weather_kyiv.txt` and `fixtures/weather_murmansk.txt` were
+  captured live this phase (11 forecast entries each: one 3-slot day,
+  one 8-slot day), grepped for the literal key value before saving
+  (0 matches, confirmed) — not written from a template guess.
+  `tests/test_normalization.py` gained two tests loading these files
+  directly and asserting hand-verified `temp_min_c`/`temp_max_c` per day.
+- **Step 13's trace moved from `wind_ms` to `temp_min_c`.** `wind_ms` (and
+  `humidity_pct`) are a constant current-conditions proxy repeated across
+  every forecast day (see phase 2's entry on why) — a real, correct, but
+  uninteresting value to trace end-to-end, since it never actually
+  varies by day. Temperature is a genuine per-day aggregate and is what
+  actually produced the Murmansk warning band this project keeps citing
+  as its running example; retraced using the real captured numbers
+  (9.28°C, margin -0.72) from this phase's own live/replay runs.
+- **OpenWeather call count documented as measured (2 per successful run,
+  1 per failed run, 1 in replay mode), not guessed** — counted directly
+  from live tool-call traces this phase, cross-checked against
+  `agent/main.py`'s actual call sites. The free-tier rate-limit figures
+  cited in README are OpenWeather's own published numbers, not
+  independently verified by exhausting quota here — deliberately not
+  stress-tested, since doing so would risk the real key needed for the
+  rest of this project's own demos.

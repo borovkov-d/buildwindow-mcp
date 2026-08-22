@@ -32,28 +32,34 @@ that this class was named `FastMCP` in older SDK versions and was renamed
 to `MCPServer` as of SDK v2.0.0. The agent that drives both connections is
 built with the Claude Agent SDK (`claude-agent-sdk` on PyPI).
 
-The actual OpenWeather *call* is deliberately **not** made by the LLM.
-The upstream tool's actual output (confirmed by reading its source — see
-`docs/tool-contracts.md`) is a plain-text report, not JSON, and the only
-signal it gives for *any* failure (bad key, unrecognized city, unreachable
-provider) is a syntactically successful but empty response — there is no
-error text to react to. So `agent/main.py` calls it directly via a
-low-level MCP client, parses it with a small, unit-tested function
-(`agent/normalize.py`), and only then starts an LLM session — handing the
-model already-clean daily figures instead of asking it to interpret raw
-provider text. The LLM session is still connected to *both* MCP servers
-(so `get_mcp_status()` discovery shows both connections, as required),
-but the model is structurally blocked from ever calling the weather tool
-itself (`disallowed_tools`) — it only ever sees the pre-fetched figures.
+The *schedule-critical* OpenWeather call is deliberately **not** made by
+the LLM. The upstream tool's actual output (confirmed by reading its
+source — see `docs/tool-contracts.md`) is a plain-text report, not JSON,
+and the only signal it gives for *any* failure (bad key, unrecognized
+city, unreachable provider) is a syntactically successful but empty
+response — there is no error text to react to. So `agent/main.py` calls
+it directly via a low-level MCP client, parses it with a small,
+unit-tested function (`agent/normalize.py`), and only then starts an LLM
+session — handing the model already-clean daily figures instead of
+asking it to interpret raw provider text. The LLM session is connected to
+*both* MCP servers (`get_mcp_status()` discovery shows both connections),
+and the model genuinely *is* allowed to call the weather tool itself
+(`allowed_tools` lists it explicitly) — but only for one current-
+conditions sentence in its final report, per the system prompt; the daily
+forecast that drives `plan_work_schedule` always comes from the
+deterministic pre-session fetch, never from the model's own call. Both
+servers are genuinely used in the agent's own flow, not just visible.
 
 ```
 engineer input (city + work list)
-  -> agent/main.py calls OpenWeather MCP directly (not via the LLM)
+  -> agent/main.py calls OpenWeather MCP directly (not via the LLM) for
+     the schedule-critical daily forecast
   -> agent/normalize.py parses the plain-text response into daily figures
   -> (if no usable forecast: report plainly, stop -- no LLM session started)
-  -> LLM session starts, connected to BOTH MCP servers (discoverable),
-     given the daily forecast + works as plain JSON, blocked from
-     calling the weather tool itself
+  -> LLM session starts, connected to BOTH MCP servers; may itself call
+     the weather tool once for current-conditions color commentary only
+  -> given the daily forecast + works as plain JSON (the only input that
+     ever drives scheduling)
   -> BuildWindow MCP  (plan_work_schedule, validate_work_window,
      estimate_curing_time, ...)
   -> schedule + explanation
@@ -185,6 +191,21 @@ uv run python -m agent.main "CityName" '[{"work_code": "excavation", "duration_d
 The optional second argument is a JSON array of works in the same shape as
 the demo list.
 
+**Replay mode** — for demo reproducibility, `--forecast-from-file <path>`
+replaces only the *source* of the raw weather text (a previously-captured
+real response instead of a live call); the exact same `normalize_forecast`
+parsing path runs on it either way:
+
+```powershell
+uv run python -m agent.main "Murmansk" '[{"work_code": "excavation", "duration_days": 1, "depends_on": []}, {"work_code": "exterior_painting", "duration_days": 2, "depends_on": []}]' --forecast-from-file fixtures/weather_murmansk.txt
+```
+
+`fixtures/weather_kyiv.txt` and `fixtures/weather_murmansk.txt` are real
+responses captured live this project (trimmed to 11 forecast entries
+each, no key inside either) — not synthetic, not fabricated examples.
+Useful if the real weather in a demo city has changed by the time you're
+running this.
+
 A full live run against real weather requires a genuinely valid
 `OWM_API_KEY` (see Configuration above) — confirmed working in this
 repo's own development environment: `uv run python -m agent.main "Kyiv"`
@@ -201,6 +222,16 @@ the last two are actually indistinguishable through this upstream tool
 (see `docs/tool-contracts.md` for why) and were both confirmed to fail
 the same clean way, even with a genuinely valid key active elsewhere in
 the same environment.
+
+**OpenWeather rate limits:** one successful run makes exactly **two**
+real calls to the `weather` tool (confirmed live, by counting) — the
+deterministic pre-session fetch, plus the model's own single
+current-conditions call (see Overview above). A failed run (no usable
+forecast) makes exactly one, since the LLM session never starts. Replay
+mode (`--forecast-from-file`) makes one live call (the model's) instead
+of two. OpenWeather's free tier is documented at 60 calls/minute and
+1,000,000 calls/month — comfortably enough for any number of manual demo
+runs; this project doesn't stress-test that published figure itself.
 
 ## Project structure
 
@@ -222,6 +253,9 @@ D:\INDIVIDUAL PROJECT\
 │   ├── main.py             # agent entry point (Claude Agent SDK)
 │   ├── normalize.py        # deterministic OpenWeather text -> daily figures
 │   └── mcp_config.json     # config for both MCP servers
+├── fixtures/
+│   ├── weather_kyiv.txt      # real captured response, for --forecast-from-file
+│   └── weather_murmansk.txt  # real captured response, for --forecast-from-file
 └── tests/
     ├── conftest.py
     ├── test_dataset.py, test_lookup.py, test_validate.py
@@ -273,9 +307,17 @@ intentionally brief:
   entry — wind speed and humidity are only available in a single
   current-conditions snapshot, applied here as a constant across every
   forecast day, and precipitation isn't exposed at all, so
-  `precipitation_mm` is always `0.0` through this integration. The same
-  tool also can't distinguish a bad API key from an unrecognized city
-  from an unreachable provider — all three come back as the same
+  `precipitation_mm` is always `0.0` through this integration. **This
+  means BuildWindow's precipitation rule (a work with
+  `precipitation_allowed=false` gets a hard violation if
+  `precipitation_mm > 0`) can never actually trigger from a live run
+  through this integration** — it's real, correct code, covered by unit
+  tests against constructed data (`tests/test_validate.py`, spec cases
+  #16-17), but not something a live demo can show, since there is no live
+  path to non-zero precipitation. This project does not simulate or
+  inject fake rain data to manufacture that demo. The same upstream tool
+  also can't distinguish a bad API key from an unrecognized city from an
+  unreachable provider — all three come back as the same
   syntactically-successful-but-empty response, which is why
   `agent/main.py` can only report "no forecast available," not a specific
   cause, for any of those three cases. See `docs/tool-contracts.md` for

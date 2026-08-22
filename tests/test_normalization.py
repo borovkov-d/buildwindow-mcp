@@ -15,7 +15,11 @@ threshold -- there was no naturally-occurring short day to capture.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from agent.normalize import normalize_forecast
+
+FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures"
 
 # Real current-conditions section + two full real days (3 and 8 three-hour
 # slots respectively) + one constructed-from-real-entries incomplete day
@@ -177,3 +181,32 @@ def test_empty_response_yields_no_days():
     # unreachable upstream API all surface through this tool: a
     # syntactically successful response with zero forecast entries.
     assert normalize_forecast(EMPTY_RESPONSE_TEXT) == []
+
+
+def test_kyiv_fixture_parses_to_two_real_days():
+    # fixtures/weather_kyiv.txt: a real captured response (see
+    # agent/main.py's --forecast-from-file replay mode), trimmed to 11
+    # forecast entries (3 + 8), used both here and as the replay-mode
+    # demo input.
+    text = (FIXTURES_DIR / "weather_kyiv.txt").read_text(encoding="utf-8")
+    days = normalize_forecast(text)
+    assert [d["date"] for d in days] == ["2026-08-22", "2026-08-23"]
+    by_date = {d["date"]: d for d in days}
+    assert by_date["2026-08-22"]["temp_min_c"] == 21.06
+    assert by_date["2026-08-22"]["temp_max_c"] == 35.19
+    assert by_date["2026-08-23"]["temp_min_c"] == 16.41
+    assert by_date["2026-08-23"]["temp_max_c"] == 26.26
+
+
+def test_murmansk_fixture_parses_to_two_real_days():
+    # fixtures/weather_murmansk.txt: a real captured response, trimmed to
+    # 11 forecast entries (3 + 8) -- the replay-mode counterpart to the
+    # live Murmansk demo run (docs/demo-checklist.md step 4b).
+    text = (FIXTURES_DIR / "weather_murmansk.txt").read_text(encoding="utf-8")
+    days = normalize_forecast(text)
+    assert [d["date"] for d in days] == ["2026-08-22", "2026-08-23"]
+    by_date = {d["date"]: d for d in days}
+    assert by_date["2026-08-22"]["temp_min_c"] == 9.28
+    assert by_date["2026-08-22"]["temp_max_c"] == 10.29
+    assert by_date["2026-08-23"]["temp_min_c"] == 9.27
+    assert by_date["2026-08-23"]["temp_max_c"] == 10.54

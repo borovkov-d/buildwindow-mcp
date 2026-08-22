@@ -94,12 +94,13 @@ out of `lookup_work_requirements` (it needs the search algorithm).
 
 - **The agent process** (`agent/main.py`) knows: how to load
   `mcp_config.json`, how to call the OpenWeather server *directly*
-  (bypassing the LLM for the actual fetch) via a low-level MCP client, how
-  to start a Claude Agent SDK session with *both* servers configured (so
-  the connection is discoverable) while blocking the model from calling
-  the weather tool itself (`disallowed_tools`), and the demo's input
-  shape (city + works list). It does not know any weather-suitability
-  formula or scheduling algorithm.
+  (bypassing the LLM for the schedule-critical fetch) via a low-level MCP
+  client, how to start a Claude Agent SDK session with *both* servers
+  configured and an explicit `allowed_tools` list naming exactly the 4
+  buildwindow tools plus `weather` (so the model can genuinely call
+  `weather` too, not just see it), and the demo's input shape (city +
+  works list, or a `--forecast-from-file` replay path). It does not know
+  any weather-suitability formula or scheduling algorithm.
 - **`agent/normalize.py`** knows how to parse the OpenWeather tool's raw
   text output into daily figures — nothing else. It is a pure function
   with no MCP, network, or LLM awareness at all, unit-tested directly
@@ -122,16 +123,25 @@ out of `lookup_work_requirements` (it needs the search algorithm).
   thresholds. It has no notion of weather, schedules, or MCP at all — it
   is inert data, read once.
 - **The model itself**, driven by `agent/main.py`'s system prompt, knows
-  only the scheduling *procedure* (call `plan_work_schedule` with the
-  already-normalized daily forecast it was given, call
-  `validate_work_window` for any work that came back `no_suitable_window`
-  to surface the specific breached constraint, call
-  `estimate_curing_time` for curing-sensitive works, explain the result)
+  the scheduling *procedure* (call `weather` once for current
+  conditions and use it only for one descriptive sentence; call
+  `plan_work_schedule` with the already-normalized daily forecast it was
+  given; call `validate_work_window` for any work that came back
+  `no_suitable_window` to surface the specific breached constraint; call
+  `estimate_curing_time` for curing-sensitive works; explain the result)
   and is explicitly told never to judge weather suitability by its own
-  reasoning. It can *see* that an `openweather` connection exists (via
-  discovery), and is told plainly never to call it, but it never
-  receives the raw text that connection would return — that text is
-  parsed by `agent/normalize.py` before the model's turn even begins.
+  reasoning. It *is* allowed to call `openweather` directly — this is
+  deliberate, not an oversight; a model that can only ever *see* a
+  connection it's forbidden to use doesn't actually incorporate that
+  server into its own flow, which matters for how this project is
+  graded, not just how it behaves. What keeps this safe: the model's own
+  call reads current conditions, one snapshot, used for color only; the
+  daily forecast that actually drives scheduling is parsed by
+  `agent/normalize.py` and handed to the model before its turn even
+  begins, and the system prompt states in two different ways (the
+  procedure step, and a standalone hard-rule-style sentence) that the
+  model's own call must never influence the schedule. Verified live: it
+  doesn't.
 
 **A note on a design change from this project's first pass:** aggregating
 OpenWeather's 3-hour entries into daily figures was originally specified

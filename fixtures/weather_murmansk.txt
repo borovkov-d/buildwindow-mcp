@@ -1,0 +1,79 @@
+Current weather for Murmansk Oblast:
+    Conditions:  overcast clouds 
+    Now:         10.29 metric
+    High:        10.29 metric
+    Low:         10.29 metric
+	Pressure:    1010
+	Humidity:    97
+	FeelsLike:   9.91
+	Wind Speed:  1.23
+	Wind Degree:    262
+	Sunrise:     1787362284 Unixtime
+	Sunset:      1787421775 Unixtime
+Weather Forecast for Murmansk Oblast:
+Date & Time: 2026-08-22 15:00:00 +0000 UTC
+Conditions:  Clouds overcast clouds
+Temp:        10.29
+High:        10.29
+Low:         10.29
+
+Date & Time: 2026-08-22 18:00:00 +0000 UTC
+Conditions:  Clouds overcast clouds
+Temp:        9.95
+High:        9.95
+Low:         9.28
+
+Date & Time: 2026-08-22 21:00:00 +0000 UTC
+Conditions:  Clouds overcast clouds
+Temp:        10.11
+High:        10.11
+Low:         10.02
+
+Date & Time: 2026-08-23 00:00:00 +0000 UTC
+Conditions:  Clouds overcast clouds
+Temp:        9.86
+High:        9.86
+Low:         9.86
+
+Date & Time: 2026-08-23 03:00:00 +0000 UTC
+Conditions:  Clouds overcast clouds
+Temp:        9.53
+High:        9.53
+Low:         9.53
+
+Date & Time: 2026-08-23 06:00:00 +0000 UTC
+Conditions:  Clouds overcast clouds
+Temp:        10.38
+High:        10.38
+Low:         10.38
+
+Date & Time: 2026-08-23 09:00:00 +0000 UTC
+Conditions:  Rain light rain
+Temp:        10.4
+High:        10.4
+Low:         10.4
+
+Date & Time: 2026-08-23 12:00:00 +0000 UTC
+Conditions:  Rain light rain
+Temp:        10.54
+High:        10.54
+Low:         10.54
+
+Date & Time: 2026-08-23 15:00:00 +0000 UTC
+Conditions:  Rain light rain
+Temp:        10.43
+High:        10.43
+Low:         10.43
+
+Date & Time: 2026-08-23 18:00:00 +0000 UTC
+Conditions:  Rain light rain
+Temp:        9.68
+High:        9.68
+Low:         9.68
+
+Date & Time: 2026-08-23 21:00:00 +0000 UTC
+Conditions:  Rain light rain
+Temp:        9.27
+High:        9.27
+Low:         9.27
+

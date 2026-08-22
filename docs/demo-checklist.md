@@ -39,17 +39,21 @@ Stop it with **Ctrl+C**.
 uv run python -m agent.main
 ```
 
-**Architecture note (confirmed this phase):** the forecast is still
-fetched and normalized directly by `agent/main.py` via a low-level MCP
-client (`mcp.client.stdio.stdio_client` + `mcp.ClientSession`), *before*
-the LLM session starts — that part of phase 2's design didn't change and
-is still correct (the raw text response is parsed deterministically, not
-interpreted by the model). What changed: **both** `buildwindow` and
-`openweather` are now passed into `ClaudeAgentOptions.mcp_servers`, so
-both show up in `ClaudeSDKClient.get_mcp_status()` — the model can *see*
-the weather connection, it just cannot *call* it
-(`disallowed_tools=["mcp__openweather__weather"]` blocks it structurally,
-backed up by an explicit instruction in the system prompt).
+**Architecture note (updated this phase):** the schedule-critical daily
+forecast is still fetched and normalized directly by `agent/main.py` via
+a low-level MCP client (`mcp.client.stdio.stdio_client` +
+`mcp.ClientSession`), *before* the LLM session starts — that part of
+phase 2's design didn't change and is still correct (the raw text
+response is parsed deterministically, not interpreted by the model). What
+changed this phase: the model itself now *also* connects to `openweather`
+and is genuinely allowed to call its `weather` tool
+(`allowed_tools` lists all 5 real tool names — 4 buildwindow + `weather`;
+no `disallowed_tools` or `bypassPermissions` needed, confirmed live) —
+but only for one current-conditions sentence in its final report, per the
+system prompt's step 1. The daily forecast driving `plan_work_schedule`
+always comes from the deterministic pre-session fetch, never from the
+model's own call. Both connections are genuinely incorporated into the
+agent's own flow, not just visible in discovery.
 
 **Point out, in order:**
 - The line `--- weather: fetched and normalized N day(s) of forecast for
@@ -70,23 +74,30 @@ backed up by an explicit instruction in the system prompt).
 
 ## 3. A successful call to the OpenWeather tool
 
-No LLM tool call to point at — this connection is deliberately made
-*before* the LLM session starts (see step 2's architecture note), by
-`agent/main.py`'s `_fetch_daily_forecast` function, using the same
-low-level MCP client pattern.
+Two genuine calls happen per run, one Python-side and one model-side —
+point out both:
 
-**Point out:** run
-`uv run python -m agent.main "Kyiv"` and watch stderr for
-`--- weather: fetched and normalized N day(s) of forecast for 'Kyiv' ---`
-— that line only appears once `agent/normalize.py`'s `normalize_forecast`
-found at least one day with 3+ forecast entries. Also point out (from
-`docs/tool-contracts.md`'s OpenWeather section): the raw response is
-**plain text**, not JSON, and only carries temperature per 3-hour
-forecast entry — wind, humidity and precipitation are not present per
-entry at all, only in the single current-conditions snapshot (precip is
-absent even there) — this is exactly why a dedicated, unit-tested parser
-(`agent/normalize.py`, see `tests/test_normalization.py`) exists instead
-of asking the model to eyeball the format.
+- **The deterministic pre-session fetch**, made *before* the LLM session
+  starts (see step 2's architecture note), by `agent/main.py`'s
+  `_fetch_daily_forecast` function. Run `uv run python -m agent.main "Kyiv"`
+  and watch stderr for `--- weather: fetched and normalized N day(s) of
+  forecast for 'Kyiv' (source: a live call) ---` — that line only appears
+  once `agent/normalize.py`'s `normalize_forecast` found at least one day
+  with 3+ forecast entries.
+- **The model's own call**, visible in the tool-call trace as
+  `[tool call] mcp__openweather__weather({"city": "Kyiv"})`, per the
+  system prompt's step 1 (current conditions only — see step 5 below for
+  why the two calls can't be confused with each other).
+
+Also point out (from `docs/tool-contracts.md`'s OpenWeather section): the
+raw response is **plain text**, not JSON, and only carries temperature
+per 3-hour forecast entry — wind, humidity and precipitation are not
+present per entry at all, only in the single current-conditions snapshot
+(precip is absent even there) — this is exactly why a dedicated,
+unit-tested parser (`agent/normalize.py`, see `tests/test_normalization.py`)
+exists instead of asking the model to eyeball the format for the
+schedule-critical data; the model's own call only ever reads the same
+text for a one-sentence color note.
 
 ---
 
@@ -142,6 +153,27 @@ constraint it names is real, not guessed by the model — and that
 weather's real influence on the outcome sometimes shows up in a
 different constraint than the one you'd expect going in.
 
+**4c. Replay mode — if Murmansk has warmed up by demo day.** Weather
+changes; the reschedule in 4b depends on Murmansk's *current* real
+forecast being cold enough, which may no longer hold by grading day. A
+recorded fallback exists for exactly this:
+
+```
+uv run python -m agent.main "Murmansk" '[{"work_code": "excavation", "duration_days": 1, "depends_on": []}, {"work_code": "exterior_painting", "duration_days": 2, "depends_on": []}]' --forecast-from-file fixtures/weather_murmansk.txt
+```
+
+`--forecast-from-file` swaps only the *source* of the raw weather text —
+`fixtures/weather_murmansk.txt` is a real response captured live this
+phase (not synthetic, not a fabricated example; see its own file for the
+provenance note), trimmed to 11 real forecast entries. The exact same
+`normalize_forecast` parsing path runs on it as on a live call — no
+special-cased bypass. Confirmed live this phase to reproduce the same
+outcome as the 4b live run: `exterior_painting` unschedulable,
+`no_suitable_window`, `validate_work_window` firing on real recorded
+humidity (97%) and temperature (9.28°C) values. A matching
+`fixtures/weather_kyiv.txt` exists for the same purpose on the baseline
+scenario.
+
 ---
 
 ## 5. Explain the OpenWeather tool's contract and its role
@@ -152,16 +184,20 @@ No command — reference `docs/tool-contracts.md`, section
 **Say:** one tool, `weather`, served by an external Go binary
 (`mcp-openweather`, not part of this repo). It returns a plain-text
 report, not JSON — confirmed by reading its actual source, since the
-tool's own `structured_content` is always empty. Neither BuildWindow's
-server (`server/main.py`) nor the LLM ever sees this raw text — only
-`agent/main.py`'s own Python code does, via a direct MCP client call made
-*before* the LLM session starts, and only long enough to parse it
-(`agent/normalize.py`) into `WeatherWindow`-shaped daily figures. Worth
-mentioning: this upstream tool can't distinguish a bad API key from an
-unrecognized city from an unreachable provider — all three come back as
-the same "hollow," zero-valued response (see `docs/tool-contracts.md`);
-that's a real, source-confirmed limitation of the external tool, not a
-gap in this project's own code.
+tool's own `structured_content` is always empty. BuildWindow's server
+(`server/main.py`) never sees this raw text at all. The model *is*
+allowed to call it (`allowed_tools` includes
+`mcp__openweather__weather`) — but only for one current-conditions
+sentence per the system prompt's step 1; the schedule-critical daily
+forecast still comes exclusively from `agent/main.py`'s own deterministic
+pre-session fetch + `agent/normalize.py` parse, never from the model's
+own call, so there are two independent readings of the same tool and
+only one of them can ever influence the schedule. Worth mentioning: this
+upstream tool can't distinguish a bad API key from an unrecognized city
+from an unreachable provider — all three come back as the same "hollow,"
+zero-valued response (see `docs/tool-contracts.md`); that's a real,
+source-confirmed limitation of the external tool, not a gap in this
+project's own code.
 
 ---
 
@@ -384,62 +420,66 @@ seeing the validation error, or explain the invalid input to the user.
 
 ## 13. Trace one value end-to-end, by file and function
 
-Trace `wind_ms` for a windy day, in this exact order (updated this phase
-to reflect the real, source-confirmed shape of the OpenWeather tool's
-output, and the resulting move of aggregation into tested Python code):
+Trace `temp_min_c` for Murmansk, 2026-08-22, in this exact order — this
+value is a genuine real per-day aggregate (unlike `wind_ms`/`humidity_pct`,
+which are a constant current-conditions proxy repeated across every day
+— see step 5's note — a fine documented limitation, but a weak choice to
+trace end-to-end since it never varies by day; temperature is the real
+per-day signal and is what actually drove the 4b/4c reschedule):
 
 **a.** OpenWeather's raw response — the external `mcp-openweather`
 binary's `weather` tool returns one **plain-text** block (not JSON;
-confirmed by reading its source — see `docs/tool-contracts.md`). Its
-current-conditions section contains a line like `Wind Speed:  4.6`. This
-is the *only* place wind speed appears at all — the forecast section's
-repeated 3-hour entries carry only date/time and temperature, never wind,
-humidity, or precipitation (a real limitation of this specific upstream
-tool).
+confirmed by reading its source — see `docs/tool-contracts.md`). The
+forecast section's real entry for 2026-08-22 18:00:00 UTC (from
+`fixtures/weather_murmansk.txt`) reads `Low: 9.28`; two more 3-hour
+entries that same calendar day read `Low: 10.29` and `Low: 10.02`.
 
-**b.** `agent/main.py`'s `_fetch_daily_forecast` calls this tool directly
-via a low-level MCP client (`mcp.client.stdio.stdio_client` +
-`mcp.ClientSession`) — **not** via the LLM — and hands the raw text to
+**b.** `agent/main.py`'s `_fetch_daily_forecast` gets this raw text
+(either via a live low-level MCP call, or read from a replay fixture —
+either way, the same next step runs) and hands it to
 `agent/normalize.py`'s `normalize_forecast`. That function's
-`_WIND_SPEED_RE` regex extracts the current-conditions wind speed once,
-and applies it as a constant `wind_ms` value to every day in the
-forecast (since no per-day figure exists to use instead) — this is
-deterministic, tested Python (`tests/test_normalization.py`), not model
-reasoning. See `DECISIONS.md`'s "Normalization moved from LLM-prompt
-instructions to a pure, unit-tested Python function" entry for why.
+`_FORECAST_ENTRY_RE` regex extracts each 3-hour entry's `Low`/`High`,
+groups them by calendar date, and computes
+`temp_min_c = min(low for low, _ in slots)` for 2026-08-22 —
+`min(9.28, 10.29, 10.02) = 9.28` — deterministic, tested Python
+(`tests/test_normalization.py`), not model reasoning. See
+`DECISIONS.md`'s "Normalization moved from LLM-prompt instructions to a
+pure, unit-tested Python function" entry for why this is code, not a
+model-interpreted step.
 
 **c.** `agent/main.py`'s `_build_prompt` embeds the resulting
-`{"date": ..., "wind_ms": 4.6, ...}` dict directly as JSON in the user
-message sent to the LLM. The model reads this pre-computed value — it
-does not aggregate anything itself anymore — and passes it through
+`{"date": "2026-08-22", "temp_min_c": 9.28, ...}` dict directly as JSON
+in the user message sent to the LLM. The model reads this pre-computed
+value — it does not aggregate anything itself — and passes it through
 verbatim as part of the JSON arguments to a `plan_work_schedule` or
 `validate_work_window` tool call.
 
-**d.** `server/main.py`'s tool function (`plan_work_schedule` or
-`validate_work_window`) receives this as `request.window.wind_ms` /
-inside `request.forecast`, already validated by Pydantic (0..60 range)
-before the function body runs.
+**d.** `server/main.py`'s tool function receives this as
+`request.window.temp_min_c` / inside `request.forecast`, already
+validated by Pydantic (-60..60 range) before the function body runs.
 
 **e.** `server/rules.py`'s `evaluate_window()` function reads
-`window.wind_ms` and compares it to `req.wind_max_ms` — the line
-`if window.wind_ms > req.wind_max_ms:`. If breached, it calls the
-internal `_classify()` helper, which computes
-`margin = actual_value - limit_value` and checks it against the
-module-level `WIND_CONDITIONAL_BAND_MS = 1.0` constant to decide
-violation vs. warning.
+`window.temp_min_c` and compares it to `req.temp_min_c` (10.0 for
+`exterior_painting`) — the line
+`if window.temp_min_c < req.temp_min_c:`. Breached (9.28 < 10.0), so it
+calls the internal `_classify()` helper, which computes
+`margin = actual_value - limit_value = 9.28 - 10.0 = -0.72` and checks
+`abs(margin) <= TEMP_CONDITIONAL_BAND_C` (2.0) — true, so this lands as
+a *warning*, not a hard violation.
 
-**f.** The result becomes a `ConstraintViolation` (also in
-`server/schemas.py`) with `constraint="wind"`,
-`actual_value=<the wind_ms value>`, embedded in
-`ValidateWorkWindowOutput.violations` or `.warnings` (or, inside the
-planner, used to compute a day's `Verdict` which feeds `plan_schedule`'s
-window search).
+**f.** The result becomes a `ConstraintViolation` (in
+`server/schemas.py`) with `constraint="temperature_min"`,
+`actual_value=9.28`, `margin=-0.72`, embedded in
+`ValidateWorkWindowOutput.warnings` — a real, live-captured example
+(step 4b/4c), alongside the genuinely blocking `humidity` violation
+(97% vs. the 80% limit) in the same response's `violations` list.
 
-**g.** This surfaces back to the model as the tool's JSON output — e.g.
-`"actual_value": 17.0` in `docs/tool-contracts.md`'s real captured
-`validate_work_window` example.
+**g.** This surfaces back to the model as the tool's JSON output — real
+captured values from this phase's live and replay runs (both matched).
 
-**h.** The model reads this and, per `agent/main.py`'s system prompt
-rule ("cite the exact constraint and value... e.g. 'wind 17 m/s exceeds
-the 15 m/s limit'"), states it in its final natural-language answer to
-the user.
+**h.** The model reads both entries and, per `agent/main.py`'s system
+prompt rule (cite the exact constraint and value), correctly reported
+**humidity** as the blocking cause and the temperature figure as a
+secondary, non-blocking warning — distinguishing a hard violation from a
+conditional warning in its own final natural-language answer, not just
+echoing the raw numbers.

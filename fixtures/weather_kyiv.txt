@@ -1,0 +1,79 @@
+Current weather for Kyiv:
+    Conditions:  clear sky 
+    Now:         33.73 metric
+    High:        33.73 metric
+    Low:         33.73 metric
+	Pressure:    1006
+	Humidity:    33
+	FeelsLike:   33.46
+	Wind Speed:  0.45
+	Wind Degree:    21
+	Sunrise:     1787367408 Unixtime
+	Sunset:      1787418323 Unixtime
+Weather Forecast for Kyiv:
+Date & Time: 2026-08-22 15:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        33.73
+High:        35.19
+Low:         33.73
+
+Date & Time: 2026-08-22 18:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        31.07
+High:        31.07
+Low:         25.76
+
+Date & Time: 2026-08-22 21:00:00 +0000 UTC
+Conditions:  Clouds scattered clouds
+Temp:        25.28
+High:        25.28
+Low:         21.06
+
+Date & Time: 2026-08-23 00:00:00 +0000 UTC
+Conditions:  Rain light rain
+Temp:        17.45
+High:        17.45
+Low:         17.45
+
+Date & Time: 2026-08-23 03:00:00 +0000 UTC
+Conditions:  Clouds scattered clouds
+Temp:        16.41
+High:        16.41
+Low:         16.41
+
+Date & Time: 2026-08-23 06:00:00 +0000 UTC
+Conditions:  Clouds few clouds
+Temp:        16.75
+High:        16.75
+Low:         16.75
+
+Date & Time: 2026-08-23 09:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        24
+High:        24
+Low:         24
+
+Date & Time: 2026-08-23 12:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        26.26
+High:        26.26
+Low:         26.26
+
+Date & Time: 2026-08-23 15:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        25.47
+High:        25.47
+Low:         25.47
+
+Date & Time: 2026-08-23 18:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        20.79
+High:        20.79
+Low:         20.79
+
+Date & Time: 2026-08-23 21:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        18.05
+High:        18.05
+Low:         18.05
+
