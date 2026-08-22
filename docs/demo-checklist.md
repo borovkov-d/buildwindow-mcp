@@ -336,8 +336,9 @@ uv run pytest tests/ -v
 ```
 
 **Point out:** the tool-facing tests exercise all 4 tools by name across
-47 passing tests (43 covering the spec's required cases, plus 4 for the
-weather-normalization module added this phase), with clean `ruff`/`black`.
+51 passing tests (43 covering the spec's required cases, plus 8 for the
+weather-normalization module, including real-fixture and
+current-conditions parsing), with clean `ruff`/`black`.
 
 ---
 

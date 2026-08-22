@@ -3,6 +3,12 @@
 MCP lab project: an agent plans construction work against a real weather
 forecast using two MCP servers.
 
+This is a course assignment for the KSE AI Agentic School (an MCP
+integration assignment): build a custom MCP server for a real domain
+problem, then connect it — alongside an existing third-party MCP server —
+to an agent that uses both together to do something a single tool
+couldn't.
+
 ## Overview
 
 BuildWindow is an MCP (Model Context Protocol) lab project built around a
@@ -246,12 +252,14 @@ stress-test that published figure itself.
 ## Project structure
 
 ```
-D:\INDIVIDUAL PROJECT\
+.
 ├── README.md, DECISIONS.md, pyproject.toml, uv.lock, .env.example, .gitignore
 ├── docs/
 │   ├── tool-contracts.md
 │   ├── design-rationale.md
 │   └── demo-checklist.md
+├── scripts/
+│   └── list_tools.py      # proves both MCP connections discover fine offline
 ├── server/
 │   ├── main.py            # MCP server entry point, registers the 4 tools
 │   ├── schemas.py         # Pydantic input/output models
@@ -294,9 +302,10 @@ uv run ruff check .
 uv run black --check .
 ```
 
-All three currently pass cleanly in this repo: 47 tests pass (covering
-the 38 spec-required cases, a few supplementary assertions, and 4 tests
-for the `agent/normalize.py` weather-parsing module), and both `ruff` and
+All three currently pass cleanly in this repo: 51 tests pass (covering
+the 38 spec-required cases, a few supplementary assertions, and 8 tests
+for the `agent/normalize.py` weather-parsing module, including the two
+real-fixture and two current-conditions cases), and both `ruff` and
 `black` report no issues.
 
 ## Limitations

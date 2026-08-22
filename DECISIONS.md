@@ -610,3 +610,78 @@ Format: `- <question> — <decision> — <why> — <alternative rejected>`.
   reading, most likely, given how close 87-93% observed across two
   different live runs already was) and pointing to 4c's replay mode for
   numbers that reproduce exactly.
+
+## Phase 9 — public-GitHub publication readiness audit
+
+- **Full commit-history secret audit, in preparation for a public
+  repository — clean.** `.env` was never committed (`git log --all
+  --full-history -- .env` is empty). Searched `git log -p --all` for
+  `OWM_API_KEY=` (only matches: the placeholder in `.env.example`, and
+  one historical Ukrainian-placeholder typo already logged in phase 4's
+  entry), for the real key's exact literal value (zero matches), for
+  `ANTHROPIC_API_KEY`/`sk-ant-`/`Bearer ` (zero matches each), and for
+  any 32-hex-character string (the real key's shape) — the only cluster
+  found is `uv.lock`'s own PyPI package URLs and sha256 hashes,
+  unrelated dependency-lock content, confirmed by reading the actual
+  diff context around them. No scratch/temp files or raw unfiltered API
+  responses were ever committed (checked via `git log --all
+  --diff-filter=A --name-only`, a complete list of every filename ever
+  added across the whole history).
+- **Commit authorship audit — clean, single real author, no AI
+  attribution.** Every commit's author and committer is `delws
+  <denisanatolich05@gmail.com>` — the project owner, not a service
+  account. Commit messages contain no `Co-Authored-By`, "Generated
+  with", or similar trailer; a keyword scan's only three hits are
+  legitimate prose mentions of the `ClaudeAgentOptions` class name and
+  the "Claude Agent SDK" product name (this project's own architecture
+  actually uses that SDK — these are real technical references, not
+  attribution).
+- **One residual concern flagged to the project owner rather than acted
+  on unilaterally: the city removed in phase 6 (see that phase's
+  entry — not named here again, consistent with the owner's standing
+  instruction) still appears 62 times across two historical commits'
+  diffs** (the commits that introduced and then referenced it, before
+  phase 6 replaced it). A public repository exposes full history, not
+  just the current tree, so `grep`-ing the current working tree (as
+  phases 6-7 did) does not mean this name is absent from what a public
+  clone would actually contain. Rewriting history to scrub it
+  (`git filter-repo` or equivalent) was *not* attempted — this phase's
+  own brief specifically said not to rewrite history unilaterally even
+  for secrets, and history rewriting is a materially more disruptive,
+  harder-to-reverse action than anything else in this phase's scope;
+  this is surfaced as a decision for the project owner, not resolved
+  here.
+- **`README.md`'s "Project structure" tree changed from a hardcoded
+  absolute path (`D:\INDIVIDUAL PROJECT\`) to a repo-relative root
+  (`.`)** — unlike `DECISIONS.md`'s historical entries (which correctly
+  preserve real absolute paths as part of the record of what was
+  actually decided/found on this machine, e.g. the phase-2 hardcoded-
+  binary-path entry), this tree is a live, forward-facing reference
+  diagram, not a historical log, and a repo-relative root is both more
+  accurate for any future clone location and less machine-specific for
+  a public audience. Also added the `scripts/` entry (added in phase 8,
+  missing from the tree) — the tree had never been kept in sync with
+  that addition until now.
+- **README gained a short project-identity paragraph at the top**
+  ("this is a KSE AI Agentic School MCP integration assignment...") for
+  a reader who lands on the repo with zero prior context — the
+  existing Overview section already explained *what* the project does
+  in its first two sentences, so only the *why*/context framing needed
+  adding, not a rewrite.
+- **Corrected two stale test counts** (`README.md`'s Testing section
+  and `docs/demo-checklist.md` step 7 both still said "47 passing
+  tests... 4 for weather-normalization", last updated in phase 5) to
+  the current real numbers (51 total, 8 for weather-normalization) —
+  found by actually running `pytest` and comparing, not assumed stale
+  from memory.
+- **No `LICENSE` file exists.** Flagged to the project owner rather
+  than added unilaterally — which license (if any) to publish under is
+  the owner's call, not a default this project should pick for them.
+- **`.gitignore` covers everything currently on disk** (confirmed via
+  `git status --ignored`: `.env`, `.venv/`, all three `__pycache__/`
+  dirs, `.pytest_cache/`, `.ruff_cache/`, `session-export.txt` — no
+  untracked file slips through uncovered). Common IDE-folder entries
+  (`.vscode/`, `.idea/`) and a Windows thumbnail-cache entry
+  (`Thumbs.db`) aren't present, but nothing of that shape currently
+  exists in the working tree either — not added speculatively for
+  files that aren't there.
