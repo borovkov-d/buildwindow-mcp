@@ -1,94 +1,115 @@
 """Tests for agent.normalize.normalize_forecast.
 
-The fixture text below is constructed to match, byte-for-byte in
-structure, the actual Go text/template format of the installed
-mcp-openweather v1.0.0 binary's `weather` tool output -- confirmed by
-reading its source directly (see agent/normalize.py's module docstring)
-and by an empty-key live call that rendered the same template against a
-zero-valued struct. It is not a captured real API response (no valid
-OWM_API_KEY was available), since no proprietary data is involved -- only
-the tool's own fixed template shape, which is public source code.
+The fixture text below is a real response, captured live this phase from
+the actual built `mcp-openweather` binary (`weather` tool, city "Kyiv")
+with a genuinely valid `OWM_API_KEY` -- not a guess at the template's
+shape. It is trimmed to a few days/entries for readability; the trimmed
+lines are real entries taken verbatim from that live response, not
+invented. No API key or other secret appears in this file. The one
+constructed part is the "incomplete day" case (below MIN_SLOTS_PER_DAY):
+two real entries from the tail of the same live response, presented
+together as if that were the whole day, since the live forecast this
+phase happened to have every actual calendar day at or above the 3-slot
+threshold -- there was no naturally-occurring short day to capture.
 """
 
 from __future__ import annotations
 
 from agent.normalize import normalize_forecast
 
-# Two full days (3 and 4 three-hour slots) and two incomplete days (2 and
-# 1 slots, both below MIN_SLOTS_PER_DAY=3) interleaved, plus a "current
-# weather" section supplying the constant wind/humidity proxy.
+# Real current-conditions section + two full real days (3 and 8 three-hour
+# slots respectively) + one constructed-from-real-entries incomplete day
+# (2 slots, below MIN_SLOTS_PER_DAY=3).
 SAMPLE_TEXT = """Current weather for Kyiv:
-    Conditions:  scattered clouds
-    Now:         18.5 c
-    High:        19.2 c
-    Low:         17.1 c
-\tPressure:    1013
-\tHumidity:    72
-\tFeelsLike:   18.1
-\tWind Speed:  4.6
-\tWind Degree:    210
-\tSunrise:     1755840000 Unixtime
-\tSunset:      1755890000 Unixtime
+    Conditions:  clear sky
+    Now:         34.29 metric
+    High:        34.29 metric
+    Low:         34.29 metric
+\tPressure:    1006
+\tHumidity:    30
+\tFeelsLike:   33.68
+\tWind Speed:  0.89
+\tWind Degree:    89
+\tSunrise:     1787367408 Unixtime
+\tSunset:      1787418323 Unixtime
 Weather Forecast for Kyiv:
-Date & Time: 2026-08-20 15:00:00
+Date & Time: 2026-08-22 15:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        34.29
+High:        35.32
+Low:         34.29
+
+Date & Time: 2026-08-22 18:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        31.45
+High:        31.45
+Low:         25.76
+
+Date & Time: 2026-08-22 21:00:00 +0000 UTC
 Conditions:  Clouds scattered clouds
-Temp:        18.5
-High:        19.2
-Low:         17.1
+Temp:        25.47
+High:        25.47
+Low:         21.06
 
-Date & Time: 2026-08-20 18:00:00
+Date & Time: 2026-08-23 00:00:00 +0000 UTC
+Conditions:  Rain light rain
+Temp:        17.45
+High:        17.45
+Low:         17.45
+
+Date & Time: 2026-08-23 03:00:00 +0000 UTC
+Conditions:  Clouds scattered clouds
+Temp:        16.41
+High:        16.41
+Low:         16.41
+
+Date & Time: 2026-08-23 06:00:00 +0000 UTC
+Conditions:  Clouds few clouds
+Temp:        16.75
+High:        16.75
+Low:         16.75
+
+Date & Time: 2026-08-23 09:00:00 +0000 UTC
 Conditions:  Clear clear sky
-Temp:        16.2
-High:        16.8
-Low:         15.9
+Temp:        24
+High:        24
+Low:         24
 
-Date & Time: 2026-08-20 21:00:00
+Date & Time: 2026-08-23 12:00:00 +0000 UTC
 Conditions:  Clear clear sky
-Temp:        14.0
-High:        14.5
-Low:         13.8
+Temp:        26.26
+High:        26.26
+Low:         26.26
 
-Date & Time: 2026-08-21 00:00:00
+Date & Time: 2026-08-23 15:00:00 +0000 UTC
 Conditions:  Clear clear sky
-Temp:        12.1
-High:        12.3
-Low:         11.9
+Temp:        25.47
+High:        25.47
+Low:         25.47
 
-Date & Time: 2026-08-21 03:00:00
+Date & Time: 2026-08-23 18:00:00 +0000 UTC
 Conditions:  Clear clear sky
-Temp:        11.0
-High:        11.4
-Low:         10.6
+Temp:        20.79
+High:        20.79
+Low:         20.79
 
-Date & Time: 2026-08-22 06:00:00
-Conditions:  Clouds broken clouds
-Temp:        11.0
-High:        15.0
-Low:         10.0
+Date & Time: 2026-08-23 21:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        18.05
+High:        18.05
+Low:         18.05
 
-Date & Time: 2026-08-22 09:00:00
-Conditions:  Clouds broken clouds
-Temp:        12.5
-High:        14.0
-Low:         9.5
+Date & Time: 2026-08-27 00:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        14.89
+High:        14.89
+Low:         14.89
 
-Date & Time: 2026-08-22 12:00:00
-Conditions:  Clouds broken clouds
-Temp:        14.0
-High:        13.0
-Low:         8.0
-
-Date & Time: 2026-08-22 15:00:00
-Conditions:  Clouds broken clouds
-Temp:        13.0
-High:        16.0
-Low:         11.0
-
-Date & Time: 2026-08-24 21:00:00
-Conditions:  Clouds broken clouds
-Temp:        20.0
-High:        20.4
-Low:         19.7
+Date & Time: 2026-08-27 03:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        13.77
+High:        13.77
+Low:         13.77
 
 """
 
@@ -117,18 +138,19 @@ def test_full_day_computed_correctly():
     days = normalize_forecast(SAMPLE_TEXT)
     by_date = {d["date"]: d for d in days}
 
-    assert "2026-08-20" in by_date
-    day = by_date["2026-08-20"]
-    assert day["temp_min_c"] == 13.8  # min(17.1, 15.9, 13.8)
-    assert day["temp_max_c"] == 19.2  # max(19.2, 16.8, 14.5)
-    assert day["wind_ms"] == 4.6  # from the current-conditions section
-    assert day["humidity_pct"] == 72  # from the current-conditions section
+    assert "2026-08-22" in by_date
+    day = by_date["2026-08-22"]
+    assert day["temp_min_c"] == 21.06  # min(34.29, 25.76, 21.06)
+    assert day["temp_max_c"] == 35.32  # max(35.32, 31.45, 25.47)
+    assert day["wind_ms"] == 0.89  # from the current-conditions section
+    assert day["humidity_pct"] == 30  # from the current-conditions section
     assert day["precipitation_mm"] == 0.0
 
-    assert "2026-08-22" in by_date
-    day2 = by_date["2026-08-22"]
-    assert day2["temp_min_c"] == 8.0  # min(10.0, 9.5, 8.0, 11.0)
-    assert day2["temp_max_c"] == 16.0  # max(15.0, 14.0, 13.0, 16.0)
+    assert "2026-08-23" in by_date
+    day2 = by_date["2026-08-23"]
+    # min/max of the 8 real Low/High values captured for this day
+    assert day2["temp_min_c"] == 16.41
+    assert day2["temp_max_c"] == 26.26
 
 
 def test_precipitation_is_always_zero():
@@ -143,12 +165,11 @@ def test_precipitation_is_always_zero():
 def test_incomplete_day_is_dropped():
     days = normalize_forecast(SAMPLE_TEXT)
     dates = {d["date"] for d in days}
-    # 2026-08-21 has only 2 three-hour slots, 2026-08-24 has only 1 --
-    # both below MIN_SLOTS_PER_DAY=3, so neither is computed from partial
-    # data; they're dropped entirely.
-    assert "2026-08-21" not in dates
-    assert "2026-08-24" not in dates
-    assert dates == {"2026-08-20", "2026-08-22"}
+    # 2026-08-27 has only 2 three-hour slots in this fixture, below
+    # MIN_SLOTS_PER_DAY=3, so it's dropped entirely rather than computed
+    # from partial data.
+    assert "2026-08-27" not in dates
+    assert dates == {"2026-08-22", "2026-08-23"}
 
 
 def test_empty_response_yields_no_days():

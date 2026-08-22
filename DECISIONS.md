@@ -357,3 +357,73 @@ Format: `- <question> — <decision> — <why> — <alternative rejected>`.
 - **`session-export.txt`** — added to `.gitignore` rather than deleted;
   it's the user's own `/export` output sitting in the repo root, not
   this project's file to remove.
+
+## Phase 4 — live run with a real OpenWeather API key
+
+- **A real key was obtained and confirmed genuinely active** (city
+  `Kyiv`: 40 real 3-hour forecast entries, real temperatures, real
+  humidity/wind). My *first* verification attempt wrongly looked like
+  the key was still inactive — it wasn't; my throwaway test script had
+  omitted `env=dict(os.environ)` on `StdioServerParameters`, so the
+  subprocess got `mcp`'s default minimal environment, not the key at
+  all. `agent/main.py`'s real `_fetch_daily_forecast` already builds its
+  env dict correctly and was never at risk — this was caught before
+  wrongly reporting a false "key not activated" stop condition, by
+  re-checking the library's own default-environment behavior rather than
+  taking the first empty result at face value.
+- **`agent/normalize.py`'s parser needed no fix against real data** —
+  checked by hand against two real days (`2026-08-22`, 3 slots;
+  `2026-08-23`, 8 slots): computed `temp_min_c`/`temp_max_c` matched the
+  true min/max of the real `Low`/`High` values exactly. This was a real
+  possible outcome the plan anticipated, not an assumed one — reported
+  as "no discrepancy found," not skipped.
+- **One fixture-fidelity gap found and fixed, functionally inert but
+  worth correcting**: `tests/test_normalization.py`'s sample text
+  omitted the real API's ` +0000 UTC` timezone suffix on each
+  `Date & Time:` line. The parser's `[^\n]*` already discarded that
+  suffix regardless (confirmed: identical parsed output either way), so
+  this was never a behavioral bug — but the fixture is now built from
+  real captured entries (trimmed, no key) instead of a constructed guess,
+  closing the "test and code share a blind spot" risk the phase's brief
+  named directly, for the two full days at least. The "incomplete day"
+  case in that same fixture is still constructed (2 real entries
+  presented as if that were the whole day), since the live forecast this
+  session happened to have every actual calendar day at or above the
+  3-slot threshold — there was no naturally short day available to
+  capture instead.
+- **The real 5-day/3-hour forecast for Kyiv had zero days below
+  `MIN_SLOTS_PER_DAY=3`** (day slot counts: 3, 8, 8, 8, 8, 5 = 40 total,
+  6 calendar days survived filtering) — the "drop an incomplete day"
+  branch is real, tested code, but this specific live call didn't
+  exercise it; only a constructed fixture entry did (see above).
+- **Second demo city — Murmansk, chosen live, not guessed.** Checked
+  real current forecasts for five cold-weather candidates (Reykjavik,
+  Murmansk, Tromsø, Longyearbyen, Norilsk); Murmansk and Longyearbyen
+  both had every day below `exterior_painting`'s 10°C minimum. Picked
+  Murmansk. The real run's actual blocking constraint turned out to be
+  **humidity** (96% vs. the 80% limit), not temperature — the forecast
+  temperature was only marginally low enough to land in the conditional
+  *warning* band, not a hard violation — and the model correctly
+  identified humidity as the true blocking cause in its final report
+  rather than conflating the two. Not the exact mechanism anticipated
+  going in, but a genuine, live-verified case of `validate_work_window`
+  contributing real information to the outcome.
+- **Invalid city vs. invalid key: re-confirmed indistinguishable, now
+  with a real working key in play, not just an absent one.** Directly
+  compared raw tool output for `("Kyivv", <real valid key>)` against
+  `("Kyiv", "GARBAGE_KEY_NOT_REAL_00000")` — byte-for-byte identical.
+  The existing "indistinguishable" claims in `docs/tool-contracts.md`
+  and `docs/demo-checklist.md` stand as previously written; this entry
+  just records that they were re-tested under stronger conditions, not
+  left as an unverified holdover from when no real key existed at all.
+- **`.env.example`'s placeholder line** had been changed on disk to
+  Ukrainian text (`OWM_API_KEY=тут_повинен_бути_ключ`) by some process
+  outside this conversation's own edits — reverted to English to match
+  every other committed file's established convention (see this log's
+  very first entry), and called out explicitly rather than silently
+  changed.
+- **`MCP_OPENWEATHER_PATH` added to `.env`** (not `.env.example` — that
+  file only documents the option) pointing at the confirmed working
+  binary path, for reliability across fresh shells in this environment
+  (an established gotcha since phase 2 — Go's installer doesn't add
+  `go install`'s own output directory to `PATH`).

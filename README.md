@@ -186,16 +186,21 @@ The optional second argument is a JSON array of works in the same shape as
 the demo list.
 
 A full live run against real weather requires a genuinely valid
-`OWM_API_KEY` (see Configuration above). Without one, `agent/main.py`
-fetches the forecast directly (not via the LLM), gets an empty result,
-prints `Forecast unavailable for '<city>' (...)`, and exits *before*
-starting any LLM session — no wasted model call, no fabricated schedule.
-This was verified with three real failure modes in this repo's own
-development environment: the `mcp-openweather` binary unreachable at all,
-no `OWM_API_KEY` set, and an invalid city name — the last two are
-actually indistinguishable through this upstream tool (see
-`docs/tool-contracts.md` for why) and were both confirmed to fail the
-same clean way.
+`OWM_API_KEY` (see Configuration above) — confirmed working in this
+repo's own development environment: `uv run python -m agent.main "Kyiv"`
+produces a real schedule from a real 6-day forecast, and
+`uv run python -m agent.main "Murmansk" '[...]'` demonstrates real
+weather actually forcing a reschedule (see `docs/demo-checklist.md` step
+4). Without a working key, `agent/main.py` fetches the forecast directly
+(not via the LLM), gets an empty result, prints
+`Forecast unavailable for '<city>' (...)`, and exits *before* starting
+any LLM session — no wasted model call, no fabricated schedule. This was
+verified with three real failure modes: the `mcp-openweather` binary
+unreachable at all, an invalid `OWM_API_KEY`, and an invalid city name —
+the last two are actually indistinguishable through this upstream tool
+(see `docs/tool-contracts.md` for why) and were both confirmed to fail
+the same clean way, even with a genuinely valid key active elsewhere in
+the same environment.
 
 ## Project structure
 
@@ -275,13 +280,14 @@ intentionally brief:
   `agent/main.py` can only report "no forecast available," not a specific
   cause, for any of those three cases. See `docs/tool-contracts.md` for
   the full, source-verified detail.
-- No genuinely valid `OWM_API_KEY` was available in this development
-  environment, so a fully successful live schedule against real weather
-  was not run here — everything up to and including that point (Go
-  install, binary build, real tool discovery, both failure paths, and the
-  normalization logic against the tool's confirmed real output format)
-  was verified live. This is the one remaining open item; see
-  `DECISIONS.md`.
+- A genuinely valid `OWM_API_KEY` is now confirmed working: a full live
+  run against real Kyiv weather produces a real schedule end-to-end, and
+  a real cold-weather city (Murmansk) was found where the live forecast
+  actually forces a work `unschedulable` and `validate_work_window` fires
+  with real numbers — see `docs/demo-checklist.md` step 4. Everything
+  described in this README has now been verified against a real,
+  working key, not just an absent one; see `DECISIONS.md` for what that
+  live run against real data did and didn't change in the code.
 
 ## Documentation
 

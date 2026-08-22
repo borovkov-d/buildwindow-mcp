@@ -57,8 +57,8 @@ backed up by an explicit instruction in the system prompt).
   printed by `agent/main.py` right after the direct client call succeeds
   and `agent/normalize.py` produced at least one usable day.
 - `--- MCP server discovery ---` printed at the end, from
-  `get_mcp_status()`. Real captured output (synthetic-forecast test run
-  this phase, since a live key still wasn't available):
+  `get_mcp_status()`. Real captured output (live run against `Kyiv`,
+  with a genuinely valid `OWM_API_KEY`):
   ```
   buildwindow: connected (tools: lookup_work_requirements, validate_work_window, estimate_curing_time, plan_work_schedule)
   openweather: connected (tools: weather)
@@ -92,22 +92,55 @@ of asking the model to eyeball the format.
 
 ## 4. The full flow where the forecast actually changes the outcome
 
+**4a. Baseline run (default demo input) — everything fits, nothing to
+reschedule.**
+
 ```
 uv run python -m agent.main
 ```
 
 (No arguments — the built-in demo input: city **Kyiv**, works
 `excavation -> concrete_pour (depends on excavation) ->
-concrete_finishing (depends on concrete_pour)`.) Let it run to completion.
+concrete_finishing (depends on concrete_pour)`.)
 
-**Point out:** the final schedule's exact dates depend on the real
-forecast at demo time — don't pre-script the output. Instead, point at
-*where* in the output the forecast's influence shows up: a work that got
-pushed later, marked `conditional`, or reported unschedulable because of
-a specific day's numbers. Per the system prompt's hard rule, the agent
-must cite the exact breached constraint and value for any such case
-(e.g. "wind 17 m/s exceeds the 15 m/s limit") — find that sentence in the
-agent's final answer and read it out.
+Real captured result (this phase, live, valid key): all three works
+scheduled `allowed` with no rescheduling (`excavation` 2026-08-22,
+`concrete_pour` 2026-08-23 to 24, `concrete_finishing` 2026-08-25).
+`estimate_curing_time` for `concrete_pour` correctly reported
+`capped: true` — the supplied 6-day forecast doesn't extend far enough
+past the pour date to reach full Nurse-Saul maturity (3586.68 of the
+required 5040 units accumulated by the end of the forecast). **Point
+out:** Kyiv's real August weather is warm enough that nothing gets
+rescheduled — a technically-correct but visually unconvincing demo of
+weather's influence on its own, which is exactly why step 4b exists.
+
+**4b. A city where the real forecast actually forces a reschedule.**
+
+```
+uv run python -m agent.main "Murmansk" '[{"work_code": "excavation", "duration_days": 1, "depends_on": []}, {"work_code": "exterior_painting", "duration_days": 2, "depends_on": []}]'
+```
+
+Chosen by actually checking real current forecasts for several cold
+cities (Reykjavik, Murmansk, Tromsø, Longyearbyen, Norilsk) against
+`exterior_painting`'s 10°C minimum — Murmansk's real forecast this phase
+had every one of its 6 forecast days below that threshold. Real captured
+result:
+- `excavation` scheduled `allowed` (2026-08-22) — tolerates the cold.
+- `exterior_painting` (2 days) came back `unschedulable`,
+  `no_suitable_window`.
+- `validate_work_window` fired automatically (per phase 3's system-prompt
+  addition) on the first forecast day, and the model correctly identified
+  the *actual* blocking constraint as **humidity** (96% vs. the 80%
+  maximum), not temperature — the real temperature that day (9.27°C) was
+  only marginally below the 10°C limit, close enough to land in the
+  conditional *warning* band rather than a hard violation, and the model
+  distinguished the two rather than conflating them.
+
+**Point out:** this is genuine evidence that `validate_work_window`'s
+output changes what the engineer is told, and that the specific breached
+constraint it names is real, not guessed by the model — and that
+weather's real influence on the outcome sometimes shows up in a
+different constraint than the one you'd expect going in.
 
 ---
 
@@ -242,8 +275,10 @@ uv run python -m agent.main "Kyivv"
 (The doubled letter is deliberate — this guarantees it is not a real
 city.)
 
-**Real captured output** (run live this phase, with the actual
-`mcp-openweather` binary built and reachable, no valid `OWM_API_KEY`):
+**Real captured output** (re-confirmed this phase with a genuinely valid,
+active `OWM_API_KEY` in the environment — this now proves the two really
+are indistinguishable rather than just looking that way because no key
+worked yet):
 
 ```
 Forecast unavailable for 'Kyivv' (the weather tool returned no usable
@@ -260,10 +295,11 @@ tool discards the underlying error from the weather API entirely
 (confirmed by reading its source), so it renders the exact same
 zero-valued response for an invalid city as it does for a bad API key —
 this scenario and scenario 2 below are **observationally identical**
-through this specific external tool once the binary itself is reachable.
-That's a genuine limitation of the upstream tool, disclosed rather than
-papered over — say so if asked why the message doesn't specifically say
-"city not found."
+through this specific external tool even with a working key active in
+the same environment (directly diffed the two raw responses byte-for-
+byte this phase: identical). That's a genuine limitation of the upstream
+tool, disclosed rather than papered over — say so if asked why the
+message doesn't specifically say "city not found."
 
 ---
 
@@ -281,8 +317,10 @@ then:
 uv run python -m agent.main
 ```
 
-**Real captured output** (run live this phase, with the actual binary
-built and reachable, but no key present):
+**Real captured output** — this phase, a garbage value was substituted
+for `OWM_API_KEY` via the process environment (not editing `.env`, which
+still holds the real key), confirming the failure path independent of
+whether a valid key exists elsewhere:
 
 ```
 Forecast unavailable for 'Kyiv' (the weather tool returned no usable
@@ -294,13 +332,13 @@ Scheduling requires a forecast; no schedule was produced.
 
 Byte-for-byte the same shape as step 9's message, for the reason
 explained there. **A third, distinguishable failure mode also exists and
-was captured separately**: if `mcp-openweather`'s command in
-`agent/mcp_config.json` doesn't resolve at all (binary missing/wrong
-path), the direct client call raises a real Python exception instead
-(observed live: `[WinError 2] The system cannot find the file
-specified`), and the message becomes `Forecast unavailable for '<city>'
-(could not connect to the weather server (...))` — this is the one case
-this project's tooling *can* actually distinguish.
+was re-confirmed this phase**: if `mcp-openweather`'s command in
+`agent/mcp_config.json` (or `MCP_OPENWEATHER_PATH`) doesn't resolve at
+all (binary missing/wrong path), the direct client call raises a real
+Python exception instead (observed live: `[WinError 2] The system cannot
+find the file specified`), and the message becomes `Forecast unavailable
+for '<city>' (could not connect to the weather server (...))` — this is
+the one case this project's tooling *can* actually distinguish.
 
 **Point out:** this is direct, confirmed evidence that the "no forecast,
 no schedule" hard rule holds under all three real failure modes tried,
