@@ -161,3 +161,132 @@ Format: `- <question> — <decision> — <why> — <alternative rejected>`.
   fixtures were locked) and could be used again for parallel doc
   drafting — heavy multi-agent fan-out across the whole build, which
   would have added coordination risk without adding real coverage.
+
+## Phase 2 — live OpenWeather verification and normalization rework
+
+- Scope interpretation of the "stop if `OWM_API_KEY` is missing" rule —
+  read as gating only the sub-steps that need a genuinely valid key (a
+  full live schedule against real weather, and a true city-not-found
+  response), not a blanket halt on the whole phase — Go install, binary
+  build, source-code contract verification, discovery, dummy-key error
+  capture, the normalization rewrite and its tests, the full spec-vs-
+  tests audit, and most of the docs sync are all independent of it and
+  were completed. This mirrors phase 1's own precedent for the same key
+  and the phase-2 brief's own step 4 being listed as independent — logged
+  here rather than asked about, per this project's established autonomy
+  policy.
+- Go install method — `winget install --id GoLang.Go -e` (system-wide),
+  as the user's own brief explicitly specified this exact approach — not
+  re-litigated as a risk, since it was pre-authorized in writing for this
+  phase, unlike phase 1 where the same action was deliberately avoided in
+  the absence of that authorization.
+- **Ground-truthing the OpenWeather MCP server by reading its actual
+  source, not its README.** `go install github.com/mschneider82/
+  mcp-openweather@latest` resolves to tag `v1.0.0`, which is *older* than
+  the repository's default-branch `HEAD` (`HEAD` is one commit — "Fix
+  #5" — ahead of the tag). The two versions behave differently; the
+  installed one is the tag, so it — not `HEAD` — is what was verified
+  against, by checking it out explicitly (`git checkout v1.0.0`) inside a
+  scratch clone and reading `main.go` directly, then confirming behavior
+  live against the actual built binary. Trusting `HEAD` (what a plain
+  `git clone` shows by default) would have documented a tool that isn't
+  actually what gets installed.
+- **The `weather` tool's output is plain text, not JSON — a load-bearing
+  discovery, not an assumption.** Confirmed from the v1.0.0 source: the
+  handler renders a Go `text/template` into a single text content block
+  (`mcp.NewToolResultText`); `CallToolResult.structured_content` is
+  always `None`. The original design (spec §1/§13.2, phase 1's
+  implementation) assumed a raw JSON 5-day/3-hour forecast needing
+  aggregation — that assumption was reasonable given the spec's own
+  framing but turned out to be wrong once the actual server was run;
+  `agent/normalize.py` parses this fixed text template with regular
+  expressions instead of `json.loads`.
+- **The forecast section carries only date/time + temperature per 3-hour
+  entry — wind, humidity and precipitation are absent from every forecast
+  entry**, confirmed from the template source
+  (`forecastTemplateTxt` only references `.DtTxt`, `.Main.Temp`,
+  `.Main.TempMax`, `.Main.TempMin`). Only the single "current conditions"
+  snapshot carries wind speed and humidity, and even that snapshot never
+  carries precipitation. Resolved as: `wind_ms`/`humidity_pct` per day use
+  the current snapshot's values as a constant proxy applied to every
+  forecast day (documented as a real limitation of the upstream tool, not
+  hidden); `precipitation_mm` is always `0.0` through this integration,
+  since the tool exposes it nowhere at all — modifying the upstream Go
+  server to add these fields, which is out of scope (spec explicitly
+  treats OpenWeather MCP as an existing, unmodified external server).
+- **`humidity_pct` aggregation changed from "average" (phase 1) to "max"
+  (this phase's explicit instruction)** — implemented as specified,
+  though in practice it is a constant per run anyway (see previous
+  entry), since only one current-conditions reading exists per call.
+- **This upstream tool cannot distinguish failure causes.** `getCurrent`/
+  `getForecast5` discard the error return of `CurrentByName`/`DailyByName`
+  entirely (confirmed in source); a missing API key, an invalid key, an
+  unrecognized city, or an unreachable OpenWeather API all render the
+  *same* way — `is_error=false` with the text template executed against a
+  zero-valued struct (empty city name, all-zero readings, zero forecast
+  entries) — verified live by calling the real binary with no key and
+  with an obviously-fake key and observing byte-identical output.
+  `normalize_forecast` therefore has exactly one failure signal available
+  — an empty result — and `agent/main.py` treats that uniformly as
+  "forecast unavailable," rather than attempting to string-match a
+  distinct reason that does not exist. This also means failure-scenario 1
+  (invalid city) and failure-scenario 2 (bad/missing key) are
+  **observationally identical** through this tool once the binary itself
+  is reachable; the only distinguishable failure mode is the binary being
+  unreachable at all (a real `[WinError 2]`/connection-refused style
+  failure, verified separately). Documented plainly rather than implying
+  a distinction that doesn't exist.
+- **A real bug in the pinned v1.0.0 release**: `weatherHandler` reads
+  `units`/`lang` from the call arguments with a bare type assertion
+  (`request.Params.Arguments["lang"].(string)`, discarding the `ok`) and
+  no fallback, so an *omitted* `lang` argument becomes `""`, which the
+  underlying `owm` library rejects as `language unavailable` — even
+  though the tool's own advertised JSON Schema declares a default of
+  `"en"`. `HEAD`'s later fix guards against this, but the pinned release
+  doesn't. Worked around by always passing `city`, `units="c"`, and
+  `lang="en"` explicitly on every call from `agent/main.py`, rather than
+  relying on the schema-declared defaults — reproducible and confirmed
+  live (the same call without `lang` fails; with it, it succeeds).
+- **Normalization moved from LLM-prompt instructions to a pure, unit-
+  tested Python function** (`agent/normalize.py`). This phase's brief
+  required deterministic, pytest-assertable edge-case behavior (a full
+  day computed correctly, a day with no precipitation defaulting to 0, an
+  incomplete day dropped) — not achievable if aggregation stays inside
+  free-form model reasoning. This is a genuine architecture change from
+  phase 1, and a deliberate one: it extends this project's own
+  established principle (quantitative logic belongs in code, not model
+  reasoning, already applied to `evaluate_window`/`estimate_curing`/
+  `plan_schedule`) to the weather-ingestion step too. As a consequence,
+  `agent/main.py` now calls the `openweather` MCP server directly via the
+  low-level `mcp.client.stdio.stdio_client` + `mcp.ClientSession` API
+  (confirmed working via direct introspection and a live call against
+  this project's own `buildwindow` server before being trusted), *before*
+  ever starting a Claude Agent SDK session — the LLM session's
+  `mcp_servers` now contains only `buildwindow`; `openweather` is never
+  exposed to the model at all. This makes the "no forecast → no schedule"
+  hard rule structurally guaranteed (enforced by a plain early return in
+  Python) rather than dependent on the model noticing and complying, and
+  it removes a wasted model turn on failure. `agent/mcp_config.json`
+  remains the single source of truth for both servers' configuration —
+  `agent/main.py` reads the `openweather` entry itself for the direct
+  client call and passes the `buildwindow` entry through to
+  `ClaudeAgentOptions` unchanged.
+- **`agent/mcp_config.json`'s `openweather` command is a hardcoded
+  absolute path** (`C:\Users\main\go\bin\mcp-openweather.exe`), not the
+  bare command name relied on in phase 1's draft. Confirmed live: the Go
+  MSI installer adds `C:\Program Files\Go\bin` (the toolchain) to `PATH`,
+  but does **not** add `$(go env GOPATH)\bin` (`%USERPROFILE%\go\bin`,
+  where `go install` actually places binaries) — a real, common Go-on-
+  Windows gotcha, not a guess. A relative command name would silently
+  fail to resolve even in a fresh shell unless the user separately adds
+  that directory to `PATH` themselves. Documented in README as either
+  fix; the absolute path is the more reliable default for this specific
+  machine's setup, since this is a personal lab project, not distributed
+  software with an unknown install location.
+- Test audit against the phase-1 spec (this phase's step 4) — re-derived
+  the Nurse-Saul nominal-curing figure and the 2.0 °C/2.1 °C conditional
+  boundary independently from the formula and re-ran them live against
+  the actual code (not just read the existing tests); both matched
+  exactly, and the full 38-requirement-to-test mapping was confirmed
+  against `pytest --collect-only`. No discrepancy between any test and
+  the spec was found — nothing needed to change on either side.

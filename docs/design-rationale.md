@@ -14,14 +14,17 @@ or drives a browser (Playwright) has no bearing on that — neither one can
 tell you tomorrow's wind speed. OpenWeather MCP is the one connection in
 this project that supplies information the agent could not otherwise have.
 
-Its role in the flow is narrow and specific: the agent calls its one
+Its role in the flow is narrow and specific: `agent/main.py` calls its one
 `weather` tool once per run to get a 5-day/3-hour forecast for the
-requested city, aggregates that into daily figures, and only then calls
-BuildWindow's tools. If that call fails — wrong city, no key, no
-connection — nothing downstream can be trusted, which is why the agent's
-system prompt makes "no forecast, no schedule" a hard rule rather than a
-suggestion: a fabricated forecast would make every subsequent tool call
-look successful while being meaningless.
+requested city, aggregates that into daily figures (`agent/normalize.py`),
+and only then starts an LLM session to call BuildWindow's tools. If that
+call fails — wrong city, no key, no connection — nothing downstream can be
+trusted, which is why "no forecast, no schedule" is enforced as a plain
+early return in Python, before any LLM session exists, rather than as a
+rule the model has to notice and comply with: a fabricated forecast would
+make every subsequent tool call look successful while being meaningless,
+and a rule the model could fail to apply is a weaker guarantee than one
+the surrounding code enforces structurally.
 
 ## 2. Why each custom tool sits at the MCP boundary
 
@@ -90,13 +93,23 @@ out of `lookup_work_requirements` (it needs the search algorithm).
 ## 4. Boundaries
 
 - **The agent process** (`agent/main.py`) knows: how to load
-  `mcp_config.json`, how to start a Claude Agent SDK session with both
-  servers configured, and the demo's input shape (city + works list). It
-  does not know any weather-suitability formula or scheduling algorithm.
-- **The MCP client** (`claude_agent_sdk`, used inside `agent/main.py`)
-  knows: the wire protocol, how to launch and talk to stdio subprocesses,
-  and tool discovery (`get_mcp_status()`). It has no BuildWindow-specific
-  or OpenWeather-specific knowledge at all — it is a generic transport.
+  `mcp_config.json`, how to call the OpenWeather server *directly*
+  (bypassing the LLM entirely) via a low-level MCP client, how to start a
+  Claude Agent SDK session with the BuildWindow server configured, and
+  the demo's input shape (city + works list). It does not know any
+  weather-suitability formula or scheduling algorithm.
+- **`agent/normalize.py`** knows how to parse the OpenWeather tool's raw
+  text output into daily figures — nothing else. It is a pure function
+  with no MCP, network, or LLM awareness at all, unit-tested directly
+  against sample text (`tests/test_normalization.py`) — the same
+  separation-of-concerns argument as §2 applied one layer earlier than
+  originally designed (see the note at the end of this section).
+- **The MCP client** (`claude_agent_sdk`, used inside `agent/main.py` for
+  the BuildWindow session; the low-level `mcp.client` API, used directly
+  for the OpenWeather call) knows: the wire protocol, how to launch and
+  talk to stdio subprocesses, and tool discovery (`get_mcp_status()`). It
+  has no BuildWindow-specific or OpenWeather-specific knowledge at all —
+  it is a generic transport.
 - **The BuildWindow server** (`server/main.py`, `rules.py`, `dataset.py`,
   `schemas.py`, `errors.py`) knows: work-type limits, the verdict rules,
   the curing formula, and the scheduling algorithm. It has **zero**
@@ -107,15 +120,29 @@ out of `lookup_work_requirements` (it needs the search algorithm).
   thresholds. It has no notion of weather, schedules, or MCP at all — it
   is inert data, read once.
 - **The model itself**, driven by `agent/main.py`'s system prompt, knows
-  the *procedure* (call the weather tool, aggregate 3-hour entries into
-  daily figures using an exact, spelled-out formula, call
-  `plan_work_schedule`, call `estimate_curing_time` for curing-sensitive
-  works, explain the result) but is explicitly told never to judge
-  weather suitability by its own reasoning. The 3-hour→daily aggregation
-  is the one numeric step the model performs itself, precisely because it
-  is data transformation (min/max/sum/average), not a suitability
-  judgment — the suitability judgment always still goes through
-  `validate_work_window`/`plan_work_schedule`.
+  only the scheduling *procedure* (call `plan_work_schedule` with the
+  already-normalized daily forecast it was given, call
+  `estimate_curing_time` for curing-sensitive works, explain the result)
+  and is explicitly told never to judge weather suitability by its own
+  reasoning. It never sees the OpenWeather server, or the raw text it
+  returns, at all.
+
+**A note on a design change from this project's first pass:** aggregating
+OpenWeather's 3-hour entries into daily figures was originally specified
+as a step the model itself would perform, from an exact recipe in its
+system prompt, reasoning that this was data transformation rather than a
+suitability judgment. That still holds as an argument, but a later
+requirement — unit-testable, deterministic edge-case behavior for the
+aggregation step (a full day computed correctly, a missing field
+defaulting to zero, an incomplete day dropped) — cannot be verified if
+the step lives inside free-form model reasoning; there is nothing for
+`pytest` to call. Moving it into `agent/normalize.py` resolved that, and
+in hindsight is the more consistent design anyway: it extends this
+project's core principle (quantitative logic belongs in code, not model
+reasoning, per §2) to the *ingestion* boundary too, not just the
+scheduling boundary. See `DECISIONS.md` for the live findings (the
+upstream tool's real, plain-text output shape; its inability to
+distinguish failure causes) that made this concrete.
 
 ## 5. Trade-offs
 
@@ -168,3 +195,18 @@ out of `lookup_work_requirements` (it needs the search algorithm).
   splitting a work across a gap (start, pause for bad weather, resume) —
   if no single contiguous window fits, the work is reported
   unschedulable rather than fragmented.
+- **OpenWeather MCP's actual data coverage is narrower than the spec's
+  original framing assumed** — confirmed by reading its source rather
+  than guessed. Its `weather` tool's forecast section carries only
+  temperature per 3-hour entry; wind speed and humidity exist only in a
+  single current-conditions snapshot (applied here as a constant across
+  every forecast day), and precipitation isn't exposed anywhere in its
+  output at all (`precipitation_mm` is always `0.0` through this
+  integration — precipitation-sensitive verdicts like `excavation`'s can
+  never actually trigger from a live run of this project as built). The
+  same tool also cannot distinguish a bad API key, an unrecognized city,
+  or an unreachable provider from one another — all three produce the
+  identical empty response, verified live. These are real limitations of
+  the specific external tool this project was asked to integrate with,
+  not something a code change on this side could fix without modifying
+  that upstream server (out of scope).

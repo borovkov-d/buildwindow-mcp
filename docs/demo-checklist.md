@@ -39,33 +39,47 @@ Stop it with **Ctrl+C**.
 uv run python -m agent.main
 ```
 
-The agent calls `ClaudeSDKClient.get_mcp_status()` (see `agent/main.py`'s
-`_print_discovery` function) and prints each configured server's name,
-connection status, and discovered tool names to stderr under
-`--- MCP server discovery ---`.
+**Architecture note (confirmed this phase, not assumed):** `openweather`
+is *not* given to the LLM at all. `agent/main.py` calls it directly via a
+low-level MCP client (`mcp.client.stdio.stdio_client` +
+`mcp.ClientSession`) before the LLM session even starts, so the raw text
+response never reaches the model. Only `buildwindow` is passed into
+`ClaudeAgentOptions.mcp_servers`, so only it appears in
+`ClaudeSDKClient.get_mcp_status()`.
 
-**Point out:**
-- `buildwindow: connected (tools: lookup_work_requirements,
-  validate_work_window, estimate_curing_time, plan_work_schedule)` — all
-  4 tools discovered by name.
-- `openweather: connected (tools: weather)` — status here depends on
-  whether Go + `OWM_API_KEY` are actually set up for this run; if either
-  is missing this instead shows `status: "failed"` (see step 10).
+**Point out, in order:**
+- The line `--- weather: fetched and normalized N day(s) of forecast for
+  '<city>' ---` on stderr — this *is* the OpenWeather connection's
+  evidence, printed by `agent/main.py` right after the direct client call
+  succeeds and `agent/normalize.py` produced at least one usable day.
+- `--- MCP server discovery (LLM session) ---` printed at the end, from
+  `get_mcp_status()`: `buildwindow: connected (tools:
+  lookup_work_requirements, validate_work_window, estimate_curing_time,
+  plan_work_schedule)` — all 4 tools discovered by name. `openweather`
+  will not appear here — that's correct, not a bug (see the architecture
+  note above).
 
 ---
 
 ## 3. A successful call to the OpenWeather tool
 
-No separate command — this happens automatically as the agent's first
-tool call once it starts reasoning about the request in step 2 or step 4.
-It is visible in the agent's stderr tool-call log, since `agent/main.py`
-prints every `[tool call] name(args)` it observes (e.g.
-`[tool call] mcp__openweather__weather({"city": "Kyiv"})`).
+No LLM tool call to point at — this connection is deliberately made
+*before* the LLM session starts (see step 2's architecture note), by
+`agent/main.py`'s `_fetch_daily_forecast` function, using the same
+low-level MCP client pattern.
 
-**Point out:** the raw response contains 3-hour interval entries (each
-with its own timestamp, temperature, wind, humidity, precipitation), not
-pre-aggregated daily data — this is exactly why the agent has to run an
-aggregation step (step 13b) before it can call any BuildWindow tool.
+**Point out:** run
+`uv run python -m agent.main "Kyiv"` and watch stderr for
+`--- weather: fetched and normalized N day(s) of forecast for 'Kyiv' ---`
+— that line only appears once `agent/normalize.py`'s `normalize_forecast`
+found at least one day with 3+ forecast entries. Also point out (from
+`docs/tool-contracts.md`'s OpenWeather section): the raw response is
+**plain text**, not JSON, and only carries temperature per 3-hour
+forecast entry — wind, humidity and precipitation are not present per
+entry at all, only in the single current-conditions snapshot (precip is
+absent even there) — this is exactly why a dedicated, unit-tested parser
+(`agent/normalize.py`, see `tests/test_normalization.py`) exists instead
+of asking the model to eyeball the format.
 
 ---
 
@@ -96,12 +110,18 @@ No command — reference `docs/tool-contracts.md`, section
 **"OpenWeather MCP — `weather` tool."**
 
 **Say:** one tool, `weather`, served by an external Go binary
-(`mcp-openweather`, not part of this repo). It returns raw 3-hour
-interval data. BuildWindow's own server (`server/main.py`) never sees
-this data directly — only the agent does, and only long enough to
-normalize it into `WeatherWindow` objects (`server/schemas.py`) before
-calling any BuildWindow tool. BuildWindow's server has zero knowledge of
-OpenWeather, HTTP, or any external API.
+(`mcp-openweather`, not part of this repo). It returns a plain-text
+report, not JSON — confirmed by reading its actual source, since the
+tool's own `structured_content` is always empty. Neither BuildWindow's
+server (`server/main.py`) nor the LLM ever sees this raw text — only
+`agent/main.py`'s own Python code does, via a direct MCP client call made
+*before* the LLM session starts, and only long enough to parse it
+(`agent/normalize.py`) into `WeatherWindow`-shaped daily figures. Worth
+mentioning: this upstream tool can't distinguish a bad API key from an
+unrecognized city from an unreachable provider — all three come back as
+the same "hollow," zero-valued response (see `docs/tool-contracts.md`);
+that's a real, source-confirmed limitation of the external tool, not a
+gap in this project's own code.
 
 ---
 
@@ -181,7 +201,8 @@ uv run pytest tests/ -v
 ```
 
 **Point out:** the tool-facing tests exercise all 4 tools by name across
-43 passing tests, with clean `ruff`/`black`.
+47 passing tests (43 covering the spec's required cases, plus 4 for the
+weather-normalization module added this phase), with clean `ruff`/`black`.
 
 ---
 
@@ -208,18 +229,34 @@ section for the exact input/output schema.
 ## 9. Failure scenario 1 — invalid city
 
 ```
-uv run python -m agent.main "Kyiv v"
+uv run python -m agent.main "Kyivv"
 ```
 
 (The doubled letter is deliberate — this guarantees it is not a real
 city.)
 
-**Expected:** the `weather` tool call returns a "city not found"-style
-error as plain text inside the normal tool response (per
-`docs/tool-contracts.md`'s documented behavior — this is not a
-protocol-level MCP error). Per the agent's system prompt's hard rule
-against inventing weather, the agent reports the failure plainly instead
-of producing a schedule. No traceback, no fabricated output.
+**Real captured output** (run live this phase, with the actual
+`mcp-openweather` binary built and reachable, no valid `OWM_API_KEY`):
+
+```
+Forecast unavailable for 'Kyivv' (the weather tool returned no usable
+forecast data for this city (through this upstream tool, a missing/
+invalid API key, an unrecognized city, and an unreachable provider are
+all indistinguishable -- none of them produce a distinct error)).
+Scheduling requires a forecast; no schedule was produced.
+```
+
+No traceback, no fabricated schedule, no LLM call even attempted (the
+Python-level fetch fails before any agent session starts — see step 2's
+architecture note). **Important, source-confirmed nuance:** this upstream
+tool discards the underlying error from the weather API entirely
+(confirmed by reading its source), so it renders the exact same
+zero-valued response for an invalid city as it does for a bad API key —
+this scenario and scenario 2 below are **observationally identical**
+through this specific external tool once the binary itself is reachable.
+That's a genuine limitation of the upstream tool, disclosed rather than
+papered over — say so if asked why the message doesn't specifically say
+"city not found."
 
 ---
 
@@ -237,20 +274,32 @@ then:
 uv run python -m agent.main
 ```
 
-**This was actually run live in this dev environment** (Go isn't
-installed here either, so the effect is the same connection failure
-either way) — the following is genuine captured output, not a
-hypothetical:
+**Real captured output** (run live this phase, with the actual binary
+built and reachable, but no key present):
 
-- `get_mcp_status()` discovery output shows the `openweather` server as
-  `status: "failed"`, `error: "Connection closed"`.
-- The agent's final message explicitly states that no weather tool is
-  available, names the missing connection, and says it is stopping
-  rather than guessing at a schedule.
+```
+Forecast unavailable for 'Kyiv' (the weather tool returned no usable
+forecast data for this city (through this upstream tool, a missing/
+invalid API key, an unrecognized city, and an unreachable provider are
+all indistinguishable -- none of them produce a distinct error)).
+Scheduling requires a forecast; no schedule was produced.
+```
+
+Byte-for-byte the same shape as step 9's message, for the reason
+explained there. **A third, distinguishable failure mode also exists and
+was captured separately**: if `mcp-openweather`'s command in
+`agent/mcp_config.json` doesn't resolve at all (binary missing/wrong
+path), the direct client call raises a real Python exception instead
+(observed live: `[WinError 2] The system cannot find the file
+specified`), and the message becomes `Forecast unavailable for '<city>'
+(could not connect to the weather server (...))` — this is the one case
+this project's tooling *can* actually distinguish.
 
 **Point out:** this is direct, confirmed evidence that the "no forecast,
-no schedule" hard rule in the system prompt actually holds under a real
-connection failure, not just in theory.
+no schedule" hard rule holds under all three real failure modes tried,
+not just in theory — and that the rule is now enforced by a plain early
+return in Python before any LLM call, not by asking the model to notice
+and comply.
 
 ---
 
@@ -290,22 +339,36 @@ seeing the validation error, or explain the invalid input to the user.
 
 ## 13. Trace one value end-to-end, by file and function
 
-Trace `wind_ms` for a windy day, in this exact order:
+Trace `wind_ms` for a windy day, in this exact order (updated this phase
+to reflect the real, source-confirmed shape of the OpenWeather tool's
+output, and the resulting move of aggregation into tested Python code):
 
-**a.** OpenWeather's raw response — one 3-hour entry's wind speed field
-from the external `mcp-openweather` server (outside this repo).
+**a.** OpenWeather's raw response — the external `mcp-openweather`
+binary's `weather` tool returns one **plain-text** block (not JSON;
+confirmed by reading its source — see `docs/tool-contracts.md`). Its
+current-conditions section contains a line like `Wind Speed:  4.6`. This
+is the *only* place wind speed appears at all — the forecast section's
+repeated 3-hour entries carry only date/time and temperature, never wind,
+humidity, or precipitation (a real limitation of this specific upstream
+tool).
 
-**b.** `agent/main.py`'s `SYSTEM_PROMPT` instructs the model to compute
-the day's `wind_ms` as the **maximum** wind speed among that day's
-3-hour entries — this aggregation is performed by the model itself, per
-the system prompt's explicit step-2 procedure. This is a documented,
-deliberate design choice — see `DECISIONS.md`'s "OpenWeather 3-hour to
-daily aggregation" entry.
+**b.** `agent/main.py`'s `_fetch_daily_forecast` calls this tool directly
+via a low-level MCP client (`mcp.client.stdio.stdio_client` +
+`mcp.ClientSession`) — **not** via the LLM — and hands the raw text to
+`agent/normalize.py`'s `normalize_forecast`. That function's
+`_WIND_SPEED_RE` regex extracts the current-conditions wind speed once,
+and applies it as a constant `wind_ms` value to every day in the
+forecast (since no per-day figure exists to use instead) — this is
+deterministic, tested Python (`tests/test_normalization.py`), not model
+reasoning. See `DECISIONS.md`'s "Normalization moved from LLM-prompt
+instructions to a pure, unit-tested Python function" entry for why.
 
-**c.** The model constructs a `WeatherWindow` object (defined in
-`server/schemas.py`) with that value as its `wind_ms` field, as part of
-the JSON arguments to a `plan_work_schedule` or `validate_work_window`
-tool call.
+**c.** `agent/main.py`'s `_build_prompt` embeds the resulting
+`{"date": ..., "wind_ms": 4.6, ...}` dict directly as JSON in the user
+message sent to the LLM. The model reads this pre-computed value — it
+does not aggregate anything itself anymore — and passes it through
+verbatim as part of the JSON arguments to a `plan_work_schedule` or
+`validate_work_window` tool call.
 
 **d.** `server/main.py`'s tool function (`plan_work_schedule` or
 `validate_work_window`) receives this as `request.window.wind_ms` /
