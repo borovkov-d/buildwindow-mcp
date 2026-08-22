@@ -123,7 +123,10 @@ the pour date to reach full Nurse-Saul maturity (2834.64 of the required
 5040 units accumulated by the end of the forecast). **Point out:**
 Kyiv's real August weather is warm enough that nothing gets rescheduled
 — a technically-correct but visually unconvincing demo of weather's
-influence on its own, which is exactly why step 4b exists.
+influence on its own, which is exactly why step 4b exists. (On a live
+run, today's real dates will differ from the ones shown above — that's
+expected; see 4c's note on why the dates in this doc don't need updating
+every day.)
 
 **4b. A city where the real forecast actually forces a reschedule.**
 
@@ -179,6 +182,75 @@ and humidity cited by `validate_work_window`, current conditions correct
 `openweather` doesn't even appear, proving no connection was attempted.
 A matching `fixtures/weather_kyiv.txt` exists for the same purpose on
 the baseline scenario.
+
+**The fixture dates are frozen at capture time and will be in the past
+by demo day — this doesn't matter.** `server/rules.py`'s `plan_schedule`
+derives `horizon_start`/`horizon_end` as `min`/`max` over the supplied
+forecast's own dates (confirmed by reading the code: no call to
+`date.today()`, `datetime.now()`, or any other system-clock read exists
+anywhere in `server/` or `agent/`); it schedules entirely relative to
+whatever dates the forecast carries, never the machine's current date.
+Replaying a fixture whose dates are now in the past produces the exact
+same schedule, relative to those dates, as it did the day it was
+captured — nothing in this doc needs updating just because time has
+passed.
+
+**Proving both connections discover fine with no network, a separate
+way.** Replay mode's own `get_mcp_status()` output (above) only ever
+shows `buildwindow`, since `openweather` is deliberately omitted from
+the session entirely — so it can't be used to show *both* connections
+at once. If asked to prove the `openweather` binary itself still starts
+and answers MCP discovery with zero network access (as opposed to just
+"the agent chooses not to connect it"), run `list_tools()` directly
+against both binaries with the low-level client, no LLM session
+involved at all:
+
+```
+uv run python
+```
+
+```python
+import asyncio, os
+from agent.main import _load_mcp_servers, PROJECT_ROOT
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+async def list_tools(name, config):
+    env = dict(os.environ)
+    for k, v in (config.get("env") or {}).items():
+        env[k] = os.path.expandvars(v)
+    params = StdioServerParameters(
+        command=config["command"], args=config.get("args", []),
+        env=env, cwd=str(PROJECT_ROOT),
+    )
+    async with stdio_client(params) as (r, w):
+        async with ClientSession(r, w) as session:
+            await session.initialize()
+            tools = await session.list_tools()
+            print(name, [t.name for t in tools.tools])
+
+servers = _load_mcp_servers()
+asyncio.run(list_tools("buildwindow", servers["buildwindow"]))
+asyncio.run(list_tools("openweather", servers["openweather"]))
+```
+
+**Real captured output, run this phase with a deliberately broken
+`OWM_API_KEY`** (`os.environ["OWM_API_KEY"] = "GARBAGE_BROKEN_KEY_00000"`
+before calling `_load_mcp_servers()`):
+
+```
+buildwindow ['lookup_work_requirements', 'validate_work_window', 'estimate_curing_time', 'plan_work_schedule']
+openweather ['weather']
+```
+
+Both connections answer `list_tools()` instantly with a broken key in
+place — direct proof that MCP tool *discovery* (`initialize` +
+`list_tools`) never touches the OpenWeather HTTP API at all; only an
+actual `call_tool("weather", ...)` does. This is a separate, stronger
+claim than replay mode's own "openweather absent from discovery" —
+it shows the connection genuinely *can* be made with zero network
+dependency, not just that this project chooses not to make it in replay
+mode.
 
 ---
 
