@@ -32,8 +32,8 @@ that this class was named `FastMCP` in older SDK versions and was renamed
 to `MCPServer` as of SDK v2.0.0. The agent that drives both connections is
 built with the Claude Agent SDK (`claude-agent-sdk` on PyPI).
 
-The OpenWeather connection is deliberately **not** made by the LLM. The
-upstream tool's actual output (confirmed by reading its source — see
+The actual OpenWeather *call* is deliberately **not** made by the LLM.
+The upstream tool's actual output (confirmed by reading its source — see
 `docs/tool-contracts.md`) is a plain-text report, not JSON, and the only
 signal it gives for *any* failure (bad key, unrecognized city, unreachable
 provider) is a syntactically successful but empty response — there is no
@@ -41,15 +41,21 @@ error text to react to. So `agent/main.py` calls it directly via a
 low-level MCP client, parses it with a small, unit-tested function
 (`agent/normalize.py`), and only then starts an LLM session — handing the
 model already-clean daily figures instead of asking it to interpret raw
-provider text.
+provider text. The LLM session is still connected to *both* MCP servers
+(so `get_mcp_status()` discovery shows both connections, as required),
+but the model is structurally blocked from ever calling the weather tool
+itself (`disallowed_tools`) — it only ever sees the pre-fetched figures.
 
 ```
 engineer input (city + work list)
   -> agent/main.py calls OpenWeather MCP directly (not via the LLM)
   -> agent/normalize.py parses the plain-text response into daily figures
   -> (if no usable forecast: report plainly, stop -- no LLM session started)
-  -> LLM session starts, given the daily forecast + works as plain JSON
-  -> BuildWindow MCP  (plan_work_schedule, estimate_curing_time, ...)
+  -> LLM session starts, connected to BOTH MCP servers (discoverable),
+     given the daily forecast + works as plain JSON, blocked from
+     calling the weather tool itself
+  -> BuildWindow MCP  (plan_work_schedule, validate_work_window,
+     estimate_curing_time, ...)
   -> schedule + explanation
 ```
 
@@ -100,6 +106,14 @@ itself — its `main()` calls `python-dotenv`'s `load_dotenv()` first, and
 that call is what actually makes the values in `.env` reach the process
 environment before the substitution happens.
 
+Its `openweather.command` field is itself a placeholder,
+`${MCP_OPENWEATHER_PATH}` — `agent/main.py` resolves it from the
+`MCP_OPENWEATHER_PATH` environment variable if set, or falls back to the
+bare command `mcp-openweather` (relying on `PATH`) if not. Set
+`MCP_OPENWEATHER_PATH` in `.env` (see `.env.example`) to the binary's
+absolute path if you don't want to add its directory to `PATH` — both
+were verified to work live.
+
 **Building the OpenWeather MCP server** (only needed if you want a live
 run against real weather). These are the exact commands used to build and
 verify it in this repo's own development environment:
@@ -107,30 +121,31 @@ verify it in this repo's own development environment:
 ```powershell
 winget install --id GoLang.Go -e --accept-source-agreements --accept-package-agreements
 # open a new shell so PATH picks up the Go toolchain, then:
-go install github.com/mschneider82/mcp-openweather@latest
+go install github.com/mschneider82/mcp-openweather@main
 ```
 
 This installs to `$(go env GOPATH)\bin\mcp-openweather.exe` — on Windows
 that's typically `%USERPROFILE%\go\bin\mcp-openweather.exe`. **Important:**
 the Go MSI installer adds the Go *toolchain* (`C:\Program Files\Go\bin`)
 to `PATH`, but does **not** add `%USERPROFILE%\go\bin` — where `go
-install` actually places built binaries. A bare `"command":
-"mcp-openweather"` in `agent/mcp_config.json` will silently fail to
-resolve even in a brand-new shell unless you separately add that
-directory to `PATH` yourself. This repo's checked-in
-`agent/mcp_config.json` sidesteps that entirely by using the absolute
-path (`C:\Users\main\go\bin\mcp-openweather.exe`) directly — if your
-`go env GOPATH` differs, update that one path.
+install` actually places built binaries. Either add that directory to
+`PATH` yourself, or set `MCP_OPENWEATHER_PATH` to the binary's full path
+(see above) — this repo's own setup uses the latter.
 
-`go install ...@latest` resolves to tag `v1.0.0` (verified by checking out
-that tag and reading its source — it's one commit behind the repository's
-`HEAD`). One behavior worth knowing about this pinned version: its
-`weather` tool reads the optional `units`/`lang` arguments with no
-fallback when they're omitted entirely, so an omitted `lang` fails with
-`language unavailable` even though the tool's own schema declares a
-default. `agent/main.py` always passes `city`, `units="c"`, and
-`lang="en"` explicitly to avoid this — nothing you need to do here, just
-documented in case you call the tool directly yourself.
+**Why `@main` and not `@latest`:** `go install ...@latest` resolves to
+tag `v1.0.0`, which is one real commit ("Fix #5") behind the repository's
+`main` branch. Both were built and compared live this project: `v1.0.0`
+reads the optional `units`/`lang` arguments with no fallback when
+they're omitted entirely, so an omitted `lang` fails with `language
+unavailable` even though the tool's own schema declares a default;
+`main`'s "Fix #5" commit adds defensive handling and the same call
+succeeds. The forecast template itself is otherwise identical between
+the two (confirmed by reading both versions' source) — building from
+`main` doesn't add per-day wind/humidity/precipitation, it only fixes
+the argument bug. `agent/main.py` always passes `city`, `units="c"`, and
+`lang="en"` explicitly regardless, so this bug can't actually surface
+through this project either way — but `main` is the more robust binary
+to depend on if you ever call the tool a different way.
 
 Do **not** use the `-o mcp-weather` flag shown in some of the upstream
 README's own examples — that produces a binary name inconsistent with its

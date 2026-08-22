@@ -3,6 +3,13 @@ city (via a direct, deterministic MCP client call to the OpenWeather MCP
 server -- not via the LLM), then asks the model to plan a week of
 construction work against it using the BuildWindow MCP server.
 
+The LLM session connects to BOTH MCP servers -- "buildwindow" and
+"openweather" -- so that both are visible via get_mcp_status() discovery,
+but the model is both instructed and structurally blocked
+(disallowed_tools) from ever calling the weather tool itself: the
+forecast is always fetched and normalized by this module's own direct
+client call beforehand, never by the model.
+
 Run with:
     uv run python -m agent.main
     uv run python -m agent.main "Kyiv"
@@ -10,11 +17,13 @@ Run with:
 
 Requires OWM_API_KEY in the environment (or a .env file) and the
 mcp-openweather binary reachable via the "command" in mcp_config.json --
-see README.md for build/setup instructions. Without a usable forecast
-(missing key, invalid key, unrecognized city, or the binary being
-unreachable -- see agent/normalize.py for why this tool can't tell those
-apart), this program reports that plainly and exits before ever starting
-an LLM session; it never fabricates a schedule.
+see README.md for build/setup instructions (including the
+MCP_OPENWEATHER_PATH environment variable, an alternative to putting the
+binary on PATH). Without a usable forecast (missing key, invalid key,
+unrecognized city, or the binary being unreachable -- see
+agent/normalize.py for why this tool can't tell those apart), this
+program reports that plainly and exits before ever starting an LLM
+session; it never fabricates a schedule.
 """
 
 from __future__ import annotations
@@ -22,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -44,12 +54,13 @@ MCP_CONFIG_PATH = Path(__file__).resolve().parent / "mcp_config.json"
 
 SYSTEM_PROMPT = """You are BuildWindow's construction scheduling assistant.
 
-You have one MCP connection: a "buildwindow" server with four
-deterministic construction-planning tools. The weather forecast for the
-requested city has already been fetched and aggregated into daily figures
-by the surrounding program -- it is given to you directly in the user
-message below. You do not call any weather tool yourself; there isn't one
-in this session.
+You have two MCP connections: a "buildwindow" server with four
+deterministic construction-planning tools, and an "openweather" server.
+The openweather connection is visible to you, but you must NEVER call its
+weather tool yourself -- any attempt is blocked. The weather forecast for
+the requested city has already been fetched and aggregated into daily
+figures by the surrounding program, and is given to you directly in the
+user message below.
 
 Hard rules:
 - Weather suitability verdicts and the final schedule come EXCLUSIVELY
@@ -65,13 +76,18 @@ Hard rules:
 Procedure:
 1. Call plan_work_schedule with the requested works and the supplied daily
    forecast.
-2. For every scheduled work whose type has a curing stage (check with
+2. For every work reported unschedulable with reason no_suitable_window,
+   call validate_work_window for that same work against the first day of
+   the supplied forecast, so you can hand the engineer the specific
+   breached constraint and its numbers, not just the reason code.
+3. For every scheduled work whose type has a curing stage (check with
    lookup_work_requirements if unsure -- base_curing_hours is not null),
    call estimate_curing_time using the daily temperatures for the days it
    occupies, so you can report when it will actually be ready, not just
    when construction activity finishes.
-3. Report: the schedule, every rescheduled/unschedulable work with its
-   specific cited reason, and curing-adjusted readiness dates.
+4. Report: the schedule, every rescheduled/unschedulable work with its
+   specific cited reason (including the validate_work_window detail from
+   step 2 where applicable), and curing-adjusted readiness dates.
 """
 
 # Demo input (spec section 13.2 step 1) -- swap the city and/or works for
@@ -92,13 +108,30 @@ DEMO_WORKS = [
 ]
 
 
+# Fallback when a "${VAR}" command placeholder's environment variable is
+# unset: rely on PATH instead, rather than fail outright.
+_OPENWEATHER_COMMAND_FALLBACK = "mcp-openweather"
+
+
+def _resolve_command(command: str) -> str:
+    """Resolve a "${VAR}" command placeholder from the environment,
+    falling back to a bare command name (relying on PATH) if the variable
+    is unset. A plain command with no placeholder is returned unchanged."""
+    match = re.fullmatch(r"\$\{(\w+)\}", command)
+    if match is None:
+        return command
+    return os.environ.get(match.group(1), _OPENWEATHER_COMMAND_FALLBACK)
+
+
 def _load_mcp_servers() -> dict:
     """Load agent/mcp_config.json (the single source of truth for MCP
-    server config) and substitute ${VAR} placeholders in each server's
-    env block from the current process environment."""
+    server config), substitute ${VAR} placeholders in each server's env
+    block from the current process environment, and resolve a ${VAR}
+    command placeholder the same way (see _resolve_command)."""
     raw = json.loads(MCP_CONFIG_PATH.read_text(encoding="utf-8"))
     servers = raw["mcpServers"]
     for server in servers.values():
+        server["command"] = _resolve_command(server["command"])
         env = server.get("env")
         if env:
             server["env"] = {
@@ -165,14 +198,14 @@ def _build_prompt(city: str, works: list[dict], forecast: list[dict]) -> str:
 
 
 def _print_discovery(status: dict) -> None:
-    print("--- MCP server discovery (LLM session) ---", file=sys.stderr)
+    print("--- MCP server discovery ---", file=sys.stderr)
     for server in status.get("mcpServers", []):
-        if server["name"] != "buildwindow":
+        if server["name"] not in ("buildwindow", "openweather"):
             continue  # skip unrelated servers configured elsewhere in this environment
         tool_names = [t["name"] for t in server.get("tools", [])]
         detail = f" (tools: {', '.join(tool_names)})" if tool_names else ""
         print(f"  {server['name']}: {server['status']}{detail}", file=sys.stderr)
-    print("-------------------------------------------", file=sys.stderr)
+    print("-----------------------------", file=sys.stderr)
 
 
 async def run(city: str, works: list[dict]) -> None:
@@ -194,7 +227,12 @@ async def run(city: str, works: list[dict]) -> None:
 
     options = ClaudeAgentOptions(
         system_prompt=SYSTEM_PROMPT,
-        mcp_servers={"buildwindow": servers["buildwindow"]},
+        mcp_servers={
+            "buildwindow": servers["buildwindow"],
+            "openweather": servers["openweather"],
+        },
+        disallowed_tools=["mcp__openweather__weather"],
+        permission_mode="bypassPermissions",
         cwd=str(PROJECT_ROOT),
     )
 
@@ -217,6 +255,13 @@ async def run(city: str, works: list[dict]) -> None:
 
 
 def main() -> None:
+    # The model's output may contain characters outside the console's
+    # active codepage (observed: a Windows console on cp1251 crashing on
+    # a plain Unicode hyphen). Never let output encoding crash the run.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
     load_dotenv()
     city = sys.argv[1] if len(sys.argv) > 1 else DEMO_CITY
     works = json.loads(sys.argv[2]) if len(sys.argv) > 2 else DEMO_WORKS

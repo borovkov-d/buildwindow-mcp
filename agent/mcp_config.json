@@ -7,7 +7,7 @@
     },
     "openweather": {
       "type": "stdio",
-      "command": "C:\\Users\\main\\go\\bin\\mcp-openweather.exe",
+      "command": "${MCP_OPENWEATHER_PATH}",
       "args": [],
       "env": {
         "OWM_API_KEY": "${OWM_API_KEY}"

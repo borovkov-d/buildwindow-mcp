@@ -39,25 +39,32 @@ Stop it with **Ctrl+C**.
 uv run python -m agent.main
 ```
 
-**Architecture note (confirmed this phase, not assumed):** `openweather`
-is *not* given to the LLM at all. `agent/main.py` calls it directly via a
-low-level MCP client (`mcp.client.stdio.stdio_client` +
-`mcp.ClientSession`) before the LLM session even starts, so the raw text
-response never reaches the model. Only `buildwindow` is passed into
-`ClaudeAgentOptions.mcp_servers`, so only it appears in
-`ClaudeSDKClient.get_mcp_status()`.
+**Architecture note (confirmed this phase):** the forecast is still
+fetched and normalized directly by `agent/main.py` via a low-level MCP
+client (`mcp.client.stdio.stdio_client` + `mcp.ClientSession`), *before*
+the LLM session starts — that part of phase 2's design didn't change and
+is still correct (the raw text response is parsed deterministically, not
+interpreted by the model). What changed: **both** `buildwindow` and
+`openweather` are now passed into `ClaudeAgentOptions.mcp_servers`, so
+both show up in `ClaudeSDKClient.get_mcp_status()` — the model can *see*
+the weather connection, it just cannot *call* it
+(`disallowed_tools=["mcp__openweather__weather"]` blocks it structurally,
+backed up by an explicit instruction in the system prompt).
 
 **Point out, in order:**
 - The line `--- weather: fetched and normalized N day(s) of forecast for
-  '<city>' ---` on stderr — this *is* the OpenWeather connection's
-  evidence, printed by `agent/main.py` right after the direct client call
-  succeeds and `agent/normalize.py` produced at least one usable day.
-- `--- MCP server discovery (LLM session) ---` printed at the end, from
-  `get_mcp_status()`: `buildwindow: connected (tools:
-  lookup_work_requirements, validate_work_window, estimate_curing_time,
-  plan_work_schedule)` — all 4 tools discovered by name. `openweather`
-  will not appear here — that's correct, not a bug (see the architecture
-  note above).
+  '<city>' ---` on stderr — the OpenWeather connection's real evidence,
+  printed by `agent/main.py` right after the direct client call succeeds
+  and `agent/normalize.py` produced at least one usable day.
+- `--- MCP server discovery ---` printed at the end, from
+  `get_mcp_status()`. Real captured output (synthetic-forecast test run
+  this phase, since a live key still wasn't available):
+  ```
+  buildwindow: connected (tools: lookup_work_requirements, validate_work_window, estimate_curing_time, plan_work_schedule)
+  openweather: connected (tools: weather)
+  ```
+  Both connections, both discovered — this is the direct answer to "show
+  that the agent discovers both MCP connections."
 
 ---
 

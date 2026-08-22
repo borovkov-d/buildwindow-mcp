@@ -290,3 +290,70 @@ Format: `- <question> — <decision> — <why> — <alternative rejected>`.
   exactly, and the full 38-requirement-to-test mapping was confirmed
   against `pytest --collect-only`. No discrepancy between any test and
   the spec was found — nothing needed to change on either side.
+
+## Phase 3 — dual-connection visibility, portability, demo depth
+
+- **`openweather` restored to `ClaudeAgentOptions.mcp_servers`, paired
+  with `disallowed_tools=["mcp__openweather__weather"]`.** Phase 2's
+  decision to fetch weather directly in Python (not via the LLM) was
+  correct and stays; dropping the server from the LLM session entirely
+  was the wrong way to express that, since it hid a required connection
+  from `get_mcp_status()` discovery. Both connections are now visible,
+  but the model is structurally blocked from calling the weather tool
+  (not just told not to in the prompt) — belt and suspenders, verified
+  live: `get_mcp_status()` now lists `buildwindow` (4 tools) and
+  `openweather` (tool `weather`) both `connected`.
+- **Found and fixed a latent permission bug while verifying the above,
+  not something this phase set out to look for.** `ClaudeAgentOptions`
+  defaults to an interactive permission mode; a non-interactive script
+  (no human present to approve a tool call) silently got its
+  `plan_work_schedule` call denied — this had never surfaced before
+  because no prior phase had gotten far enough (a normalized forecast in
+  hand) to reach an actual buildwindow tool call in a real run. Fixed
+  with `permission_mode="bypassPermissions"`. Caught by the synthetic
+  forecast test built for step 5 below, not by luck — a real reason
+  every architecture change here has ended in a live re-verification,
+  not just a read-through.
+- **Found and fixed a Unicode console-encoding crash while verifying the
+  same test.** Printing the model's response text crashed with
+  `UnicodeEncodeError` on this machine's console codepage (cp1251) the
+  first time a response contained a character outside it. Fixed by
+  reconfiguring `sys.stdout`/`sys.stderr` to UTF-8 with
+  `errors="replace"` at the top of `main()` — cheap, general, and
+  prevents the agent from crashing on arbitrary model output regardless
+  of the terminal's locale.
+- **`validate_work_window` given a real call site**: the system prompt's
+  procedure now calls it for any work reported `unschedulable` with
+  reason `no_suitable_window`, against the first day of the supplied
+  forecast, to surface the specific breached constraint and its numbers
+  to the engineer. Verified live with a synthetic forecast that
+  guarantees this condition (bypassing the still-unavailable real
+  weather key): the model called `plan_work_schedule`, then
+  `validate_work_window`, then reported the exact `temperature_min`
+  violation with limit/actual/margin values, unprompted beyond the new
+  instruction.
+- **Switched the documented/built OpenWeather version from `@latest`
+  (tag `v1.0.0`) to `@main`** (commit `e032683`, "Fix #5"). Live
+  comparison, not just re-reading source: built both, called each with
+  `lang` omitted — `v1.0.0` fails (`language unavailable`, a real bug:
+  the tool's own schema declares a default but the handler doesn't
+  apply one when the argument is entirely absent), `main` succeeds
+  (defensive argument handling added by "Fix #5"). Also confirmed the
+  forecast template itself is byte-identical between the two versions —
+  `main` does not add per-day wind/humidity/precipitation, so
+  `agent/normalize.py`'s constant-current-conditions-proxy design needed
+  no changes. `agent/main.py` still passes `lang`/`units` explicitly on
+  every call regardless of which version is installed, since that costs
+  nothing and removes any dependency on the fix being present.
+- **Portable `mcp_config.json`**: the hardcoded absolute path from phase
+  2 is now `${MCP_OPENWEATHER_PATH}`, resolved by a small dedicated
+  helper (`agent/main.py`'s `_resolve_command`) that falls back to the
+  bare command `mcp-openweather` (relying on `PATH`) if the variable is
+  unset — not a generic templating mechanism, since this project has
+  exactly one config value that needs this pattern. Verified both
+  branches live: once with `MCP_OPENWEATHER_PATH` set to the known
+  absolute path, once relying on the bare-command fallback with the
+  binary's directory added to `PATH` instead.
+- **`session-export.txt`** — added to `.gitignore` rather than deleted;
+  it's the user's own `/export` output sitting in the repo root, not
+  this project's file to remove.

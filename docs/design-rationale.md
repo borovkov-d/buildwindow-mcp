@@ -94,10 +94,12 @@ out of `lookup_work_requirements` (it needs the search algorithm).
 
 - **The agent process** (`agent/main.py`) knows: how to load
   `mcp_config.json`, how to call the OpenWeather server *directly*
-  (bypassing the LLM entirely) via a low-level MCP client, how to start a
-  Claude Agent SDK session with the BuildWindow server configured, and
-  the demo's input shape (city + works list). It does not know any
-  weather-suitability formula or scheduling algorithm.
+  (bypassing the LLM for the actual fetch) via a low-level MCP client, how
+  to start a Claude Agent SDK session with *both* servers configured (so
+  the connection is discoverable) while blocking the model from calling
+  the weather tool itself (`disallowed_tools`), and the demo's input
+  shape (city + works list). It does not know any weather-suitability
+  formula or scheduling algorithm.
 - **`agent/normalize.py`** knows how to parse the OpenWeather tool's raw
   text output into daily figures — nothing else. It is a pure function
   with no MCP, network, or LLM awareness at all, unit-tested directly
@@ -122,10 +124,14 @@ out of `lookup_work_requirements` (it needs the search algorithm).
 - **The model itself**, driven by `agent/main.py`'s system prompt, knows
   only the scheduling *procedure* (call `plan_work_schedule` with the
   already-normalized daily forecast it was given, call
+  `validate_work_window` for any work that came back `no_suitable_window`
+  to surface the specific breached constraint, call
   `estimate_curing_time` for curing-sensitive works, explain the result)
   and is explicitly told never to judge weather suitability by its own
-  reasoning. It never sees the OpenWeather server, or the raw text it
-  returns, at all.
+  reasoning. It can *see* that an `openweather` connection exists (via
+  discovery), and is told plainly never to call it, but it never
+  receives the raw text that connection would return — that text is
+  parsed by `agent/normalize.py` before the model's turn even begins.
 
 **A note on a design change from this project's first pass:** aggregating
 OpenWeather's 3-hour entries into daily figures was originally specified
