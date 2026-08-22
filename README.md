@@ -191,26 +191,33 @@ uv run python -m agent.main "CityName" '[{"work_code": "excavation", "duration_d
 The optional second argument is a JSON array of works in the same shape as
 the demo list.
 
-**Replay mode** — for demo reproducibility, `--forecast-from-file <path>`
-replaces only the *source* of the raw weather text (a previously-captured
-real response instead of a live call); the exact same `normalize_forecast`
-parsing path runs on it either way:
+**Replay mode** — `--forecast-from-file <path>` is fully offline: it
+replaces *both* the daily forecast and the current-conditions note with
+data read from a recorded file, via the same deterministic parsers
+(`normalize_forecast`, `parse_current_conditions`) used for a live call.
+`openweather` is not connected at all in this mode (confirmed via
+`get_mcp_status()` — only `buildwindow` appears), so a run needs no
+network access and no API key whatsoever — verified live with a
+deliberately broken `OWM_API_KEY` and an unreachable
+`MCP_OPENWEATHER_PATH` at the same time; the run still completed
+normally:
 
 ```powershell
-uv run python -m agent.main "Murmansk" '[{"work_code": "excavation", "duration_days": 1, "depends_on": []}, {"work_code": "exterior_painting", "duration_days": 2, "depends_on": []}]' --forecast-from-file fixtures/weather_murmansk.txt
+uv run python -m agent.main "Longyearbyen" '[{"work_code": "excavation", "duration_days": 1, "depends_on": []}, {"work_code": "exterior_painting", "duration_days": 2, "depends_on": []}]' --forecast-from-file fixtures/weather_longyearbyen.txt
 ```
 
-`fixtures/weather_kyiv.txt` and `fixtures/weather_murmansk.txt` are real
-responses captured live this project (trimmed to 11 forecast entries
-each, no key inside either) — not synthetic, not fabricated examples.
-Useful if the real weather in a demo city has changed by the time you're
-running this.
+`fixtures/weather_kyiv.txt` and `fixtures/weather_longyearbyen.txt` are
+real responses captured live this project (trimmed to 3 full real
+calendar days each, no key inside either) — not synthetic, not
+fabricated examples. Useful if the real weather in a demo city has
+changed by the time you're running this, or if there's no network at
+all at demo time.
 
 A full live run against real weather requires a genuinely valid
 `OWM_API_KEY` (see Configuration above) — confirmed working in this
 repo's own development environment: `uv run python -m agent.main "Kyiv"`
-produces a real schedule from a real 6-day forecast, and
-`uv run python -m agent.main "Murmansk" '[...]'` demonstrates real
+produces a real schedule from a real forecast, and
+`uv run python -m agent.main "Longyearbyen" '[...]'` demonstrates real
 weather actually forcing a reschedule (see `docs/demo-checklist.md` step
 4). Without a working key, `agent/main.py` fetches the forecast directly
 (not via the LLM), gets an empty result, prints
@@ -223,15 +230,18 @@ the last two are actually indistinguishable through this upstream tool
 the same clean way, even with a genuinely valid key active elsewhere in
 the same environment.
 
-**OpenWeather rate limits:** one successful run makes exactly **two**
-real calls to the `weather` tool (confirmed live, by counting) — the
-deterministic pre-session fetch, plus the model's own single
-current-conditions call (see Overview above). A failed run (no usable
-forecast) makes exactly one, since the LLM session never starts. Replay
-mode (`--forecast-from-file`) makes one live call (the model's) instead
-of two. OpenWeather's free tier is documented at 60 calls/minute and
-1,000,000 calls/month — comfortably enough for any number of manual demo
-runs; this project doesn't stress-test that published figure itself.
+**OpenWeather rate limits:** one successful live run makes exactly
+**two** real calls to the `weather` tool (confirmed live, by counting) —
+the deterministic pre-session fetch, plus the model's own single
+current-conditions call (see Overview above). A failed live run (no
+usable forecast) makes exactly one, since the LLM session never starts.
+Replay mode (`--forecast-from-file`) makes **zero** — both the daily
+forecast and the current-conditions note come from the recorded file,
+and `openweather` isn't connected at all in this mode (confirmed live:
+`get_mcp_status()` shows only `buildwindow`). OpenWeather's free tier is
+documented at 60 calls/minute and 1,000,000 calls/month — comfortably
+enough for any number of manual demo runs; this project doesn't
+stress-test that published figure itself.
 
 ## Project structure
 
@@ -255,7 +265,7 @@ D:\INDIVIDUAL PROJECT\
 │   └── mcp_config.json     # config for both MCP servers
 ├── fixtures/
 │   ├── weather_kyiv.txt      # real captured response, for --forecast-from-file
-│   └── weather_murmansk.txt  # real captured response, for --forecast-from-file
+│   └── weather_longyearbyen.txt  # real captured response, for --forecast-from-file
 └── tests/
     ├── conftest.py
     ├── test_dataset.py, test_lookup.py, test_validate.py
@@ -324,8 +334,8 @@ intentionally brief:
   the full, source-verified detail.
 - A genuinely valid `OWM_API_KEY` is now confirmed working: a full live
   run against real Kyiv weather produces a real schedule end-to-end, and
-  a real cold-weather city (Murmansk) was found where the live forecast
-  actually forces a work `unschedulable` and `validate_work_window` fires
+  a real cold-weather city (Longyearbyen) was found where the live
+  forecast actually forces a work `unschedulable` and `validate_work_window` fires
   with real numbers — see `docs/demo-checklist.md` step 4. Everything
   described in this README has now been verified against a real,
   working key, not just an absent one; see `DECISIONS.md` for what that

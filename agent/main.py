@@ -1,13 +1,20 @@
 """BuildWindow agent: fetches and normalizes a real weather forecast for a
 city (via a direct, deterministic MCP client call to the OpenWeather MCP
 server -- not via the LLM), then asks the model to plan a week of
-construction work against it using the BuildWindow MCP server. The model
-ALSO connects to the openweather server itself and may call its one
-`weather` tool for current-conditions color commentary -- the daily
-forecast that drives scheduling always comes from this module's own
-deterministic fetch+parse, never from the model's own call, so both
-servers are genuinely incorporated into the agent's own flow without
-weakening the parsing guarantee.
+construction work against it using the BuildWindow MCP server.
+
+Two modes:
+- **Live** (default): the model ALSO connects to the openweather server
+  itself and may call its one `weather` tool for current-conditions
+  color commentary -- the daily forecast that drives scheduling always
+  comes from this module's own deterministic fetch+parse, never from the
+  model's own call, so both servers are genuinely incorporated into the
+  agent's own flow without weakening the parsing guarantee.
+- **Replay/offline** (`--forecast-from-file`): both the daily forecast
+  AND the current-conditions note come from the same recorded file, via
+  the same deterministic parsers (`normalize_forecast`,
+  `parse_current_conditions`); `openweather` is not connected at all in
+  this mode, so the whole run needs no network access and no API key.
 
 Run with:
     uv run python -m agent.main
@@ -19,15 +26,12 @@ Requires OWM_API_KEY in the environment (or a .env file) and the
 mcp-openweather binary reachable via the "command" in mcp_config.json --
 see README.md for build/setup instructions (including the
 MCP_OPENWEATHER_PATH environment variable, an alternative to putting the
-binary on PATH). Without a usable forecast (missing key, invalid key,
+binary on PATH) -- for live mode only; --forecast-from-file needs
+neither. Without a usable forecast (missing key, invalid key,
 unrecognized city, or the binary being unreachable -- see
 agent/normalize.py for why this tool can't tell those apart), this
 program reports that plainly and exits before ever starting an LLM
-session; it never fabricates a schedule. --forecast-from-file replaces
-only the *source* of the raw weather text (a recorded real response
-instead of a live call) -- the same normalize_forecast parsing path
-always runs on it, for demo reproducibility when live weather won't
-cooperate on the day.
+session; it never fabricates a schedule.
 """
 
 from __future__ import annotations
@@ -52,25 +56,12 @@ from dotenv import load_dotenv
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from agent.normalize import normalize_forecast
+from agent.normalize import normalize_forecast, parse_current_conditions
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MCP_CONFIG_PATH = Path(__file__).resolve().parent / "mcp_config.json"
 
-SYSTEM_PROMPT = """You are BuildWindow's construction scheduling assistant.
-
-You have two MCP connections: a "buildwindow" server with four
-deterministic construction-planning tools, and an "openweather" server
-with one "weather" tool. You may call "weather" yourself, but ONLY for
-the narrow purpose described in step 1 below -- the daily forecast that
-drives all scheduling has already been fetched and aggregated into daily
-figures by the surrounding program, and is given to you directly in the
-user message below. That supplied daily forecast is the sole
-authoritative source for scheduling; the weather tool's own result must
-NEVER be used to build, validate, or influence the schedule, and never
-overrides the supplied daily forecast.
-
-Hard rules:
+_SHARED_HARD_RULES = """Hard rules:
 - Weather suitability verdicts and the final schedule come EXCLUSIVELY
   from the buildwindow tools (validate_work_window / plan_work_schedule /
   estimate_curing_time), evaluated against the supplied daily forecast.
@@ -80,14 +71,9 @@ Hard rules:
 - Every work that gets rescheduled, delayed, or marked unschedulable must
   be explained by citing the exact constraint and value from the tool
   response that caused it (e.g. "wind 17 m/s exceeds the 15 m/s limit"),
-  not a vague summary.
+  not a vague summary."""
 
-Procedure:
-1. Call the weather tool once for the requested city to get its CURRENT
-   conditions. Use this only to write one descriptive sentence in your
-   final report (city, current temperature, current conditions) -- purely
-   informational color for the engineer, never an input to any scheduling
-   decision.
+_SHARED_PROCEDURE_TAIL = """\
 2. Call plan_work_schedule with the requested works and the supplied daily
    forecast.
 3. For every work reported unschedulable with reason no_suitable_window,
@@ -102,20 +88,72 @@ Procedure:
 5. Report: the one-sentence current-conditions note from step 1, the
    schedule, every rescheduled/unschedulable work with its specific cited
    reason (including the validate_work_window detail from step 3 where
-   applicable), and curing-adjusted readiness dates.
+   applicable), and curing-adjusted readiness dates."""
+
+# Live mode: the model genuinely connects to openweather and may call its
+# "weather" tool itself (see run()'s allowed_tools/mcp_servers) -- kept
+# byte-for-byte equivalent to the version verified live in an earlier
+# phase, so that already-confirmed behavior doesn't change here.
+SYSTEM_PROMPT_LIVE = f"""You are BuildWindow's construction scheduling assistant.
+
+You have two MCP connections: a "buildwindow" server with four
+deterministic construction-planning tools, and an "openweather" server
+with one "weather" tool. You may call "weather" yourself, but ONLY for
+the narrow purpose described in step 1 below -- the daily forecast that
+drives all scheduling has already been fetched and aggregated into daily
+figures by the surrounding program, and is given to you directly in the
+user message below. That supplied daily forecast is the sole
+authoritative source for scheduling; the weather tool's own result must
+NEVER be used to build, validate, or influence the schedule, and never
+overrides the supplied daily forecast.
+
+{_SHARED_HARD_RULES}
+
+Procedure:
+1. Call the weather tool once for the requested city to get its CURRENT
+   conditions. Use this only to write one descriptive sentence in your
+   final report (city, current temperature, current conditions) -- purely
+   informational color for the engineer, never an input to any scheduling
+   decision.
+{_SHARED_PROCEDURE_TAIL}
+"""
+
+# Offline/replay mode: openweather is not connected in this session at
+# all (see run()) -- current conditions are supplied directly instead of
+# fetched, and the model is told plainly there is no weather tool to call.
+SYSTEM_PROMPT_OFFLINE = f"""You are BuildWindow's construction scheduling assistant.
+
+You have one MCP connection: a "buildwindow" server with four
+deterministic construction-planning tools. There is no weather tool
+connected in this session. The daily forecast that drives all scheduling,
+and a current-conditions snapshot for the requested city, have both
+already been fetched and are given to you directly in the user message
+below. The supplied daily forecast is the sole authoritative source for
+scheduling.
+
+{_SHARED_HARD_RULES}
+
+Procedure:
+1. Current conditions for the requested city are already given directly
+   in the user message below (city, temperature, conditions) -- use them
+   only to write one descriptive sentence in your final report. Do NOT
+   attempt to call a weather tool; none is connected in this session.
+{_SHARED_PROCEDURE_TAIL}
 """
 
 # Tried first, in place of permission_mode="bypassPermissions": an
-# explicit allowlist naming exactly the tools this session should ever
-# call. See DECISIONS.md for whether this alone was sufficient in a
-# non-interactive script, or bypassPermissions was still required.
-ALLOWED_TOOLS = [
+# explicit allowlist naming exactly the tools a session should ever
+# call. Confirmed live to be sufficient on its own in live mode (see
+# DECISIONS.md). BUILDWINDOW_TOOLS is always allowed; OPENWEATHER_TOOL is
+# added only in live mode (see run()) -- omitted entirely in offline mode
+# so the model has no way to attempt a live call even if it tried.
+BUILDWINDOW_TOOLS = [
     "mcp__buildwindow__lookup_work_requirements",
     "mcp__buildwindow__validate_work_window",
     "mcp__buildwindow__estimate_curing_time",
     "mcp__buildwindow__plan_work_schedule",
-    "mcp__openweather__weather",
 ]
+OPENWEATHER_TOOL = "mcp__openweather__weather"
 
 # Demo input (spec section 13.2 step 1) -- swap the city and/or works for
 # a different run, or pass them as command-line arguments.
@@ -197,36 +235,30 @@ async def _call_weather_tool_live(city: str, server_config: dict) -> str:
     return raw_text
 
 
-async def _fetch_daily_forecast(
-    city: str, server_config: dict, forecast_file: str | None = None
-) -> tuple[list[dict], str | None]:
-    """Get a daily forecast for `city` and normalize it via the standard
-    parsing path (agent.normalize.normalize_forecast) regardless of
-    source.
-
-    The raw text comes from a live, direct MCP call to the openweather
-    server (not via the LLM) by default, so the aggregation step is
-    deterministic Python, not model reasoning -- or, when
+async def _get_raw_weather_text(
+    city: str, server_config: dict, forecast_file: str | None
+) -> str:
+    """Get the weather tool's raw text response -- from a live, direct
+    MCP call to the openweather server (not via the LLM), or, when
     `forecast_file` is given, from a previously-captured real response
-    file (replay mode for demo reproducibility). Either way the exact
-    same normalize_forecast call runs on the text; there is no separate
-    "fixture" parsing branch.
+    file (replay mode: no network or API key needed). Raises on any
+    connection/protocol failure or file-read error; the caller is
+    responsible for turning that into a user-facing message."""
+    if forecast_file is not None:
+        return Path(forecast_file).read_text(encoding="utf-8")
+    return await _call_weather_tool_live(city, server_config)
+
+
+def _daily_forecast_from_text(raw_text: str) -> tuple[list[dict], str | None]:
+    """Normalize raw weather-tool text into a daily forecast via the
+    standard parsing path (agent.normalize.normalize_forecast) -- the
+    exact same call regardless of whether the text came from a live call
+    or a replay file; there is no separate "fixture" parsing branch.
 
     Returns (daily_forecast, failure_reason). `failure_reason` is None on
     success; `daily_forecast` is always [] whenever `failure_reason` is
     set.
     """
-    if forecast_file is not None:
-        try:
-            raw_text = Path(forecast_file).read_text(encoding="utf-8")
-        except OSError as exc:
-            return [], f"could not read forecast fixture '{forecast_file}' ({exc})"
-    else:
-        try:
-            raw_text = await _call_weather_tool_live(city, server_config)
-        except Exception as exc:
-            return [], f"could not connect to the weather server ({exc})"
-
     daily = normalize_forecast(raw_text)
     if not daily:
         return [], (
@@ -238,14 +270,27 @@ async def _fetch_daily_forecast(
     return daily, None
 
 
-def _build_prompt(city: str, works: list[dict], forecast: list[dict]) -> str:
-    return (
+def _build_prompt(
+    city: str,
+    works: list[dict],
+    forecast: list[dict],
+    current_conditions: dict | None = None,
+) -> str:
+    parts = [
         f"Plan the following construction works in {city} using the "
         "buildwindow tools. The daily weather forecast (already fetched "
         "and aggregated from the raw provider data) is given below.\n\n"
-        f"Works:\n{json.dumps(works, indent=2)}\n\n"
-        f"Daily forecast:\n{json.dumps(forecast, indent=2)}\n"
-    )
+    ]
+    if current_conditions is not None:
+        parts.append(
+            "Current conditions for this city have already been fetched "
+            "-- no weather tool is connected in this session, so use "
+            "these figures directly for the descriptive sentence in your "
+            f"final report:\n{json.dumps(current_conditions, indent=2)}\n\n"
+        )
+    parts.append(f"Works:\n{json.dumps(works, indent=2)}\n\n")
+    parts.append(f"Daily forecast:\n{json.dumps(forecast, indent=2)}\n")
+    return "".join(parts)
 
 
 def _print_discovery(status: dict) -> None:
@@ -260,11 +305,27 @@ def _print_discovery(status: dict) -> None:
 
 
 async def run(city: str, works: list[dict], forecast_file: str | None = None) -> None:
+    offline = forecast_file is not None
     servers = _load_mcp_servers()
 
-    daily_forecast, failure = await _fetch_daily_forecast(
-        city, servers["openweather"], forecast_file
-    )
+    try:
+        raw_text = await _get_raw_weather_text(
+            city, servers["openweather"], forecast_file
+        )
+    except Exception as exc:
+        reason = (
+            f"could not read forecast fixture '{forecast_file}' ({exc})"
+            if offline
+            else f"could not connect to the weather server ({exc})"
+        )
+        print(
+            f"Forecast unavailable for '{city}' ({reason}). "
+            "Scheduling requires a forecast; no schedule was produced.",
+            file=sys.stderr,
+        )
+        return
+
+    daily_forecast, failure = _daily_forecast_from_text(raw_text)
     if failure is not None:
         print(
             f"Forecast unavailable for '{city}' ({failure}). "
@@ -272,31 +333,50 @@ async def run(city: str, works: list[dict], forecast_file: str | None = None) ->
             file=sys.stderr,
         )
         return
-    source = f"replay file '{forecast_file}'" if forecast_file else "a live call"
+    source = f"replay file '{forecast_file}'" if offline else "a live call"
     print(
         f"--- weather: fetched and normalized {len(daily_forecast)} day(s) "
         f"of forecast for '{city}' (source: {source}) ---",
         file=sys.stderr,
     )
 
+    current_conditions = None
+    mcp_servers = {"buildwindow": servers["buildwindow"]}
+    allowed_tools = list(BUILDWINDOW_TOOLS)
+    system_prompt = SYSTEM_PROMPT_LIVE
+    if offline:
+        # Current conditions come from the same recorded text; openweather
+        # is deliberately absent from both mcp_servers and allowed_tools
+        # so no live call is even possible in this mode, not just
+        # discouraged by the prompt.
+        current_conditions = parse_current_conditions(raw_text)
+        system_prompt = SYSTEM_PROMPT_OFFLINE
+    else:
+        mcp_servers["openweather"] = servers["openweather"]
+        allowed_tools.append(OPENWEATHER_TOOL)
+
     options = ClaudeAgentOptions(
-        system_prompt=SYSTEM_PROMPT,
-        mcp_servers={
-            "buildwindow": servers["buildwindow"],
-            "openweather": servers["openweather"],
-        },
-        allowed_tools=ALLOWED_TOOLS,
+        system_prompt=system_prompt,
+        mcp_servers=mcp_servers,
+        allowed_tools=allowed_tools,
         cwd=str(PROJECT_ROOT),
     )
 
     async with ClaudeSDKClient(options=options) as client:
-        await client.query(_build_prompt(city, works, daily_forecast))
+        await client.query(
+            _build_prompt(city, works, daily_forecast, current_conditions)
+        )
         async for message in client.receive_response():
             if isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, TextBlock):
                         print(block.text)
-                    elif isinstance(block, ToolUseBlock):
+                    elif isinstance(block, ToolUseBlock) and block.name.startswith(
+                        "mcp__"
+                    ):
+                        # Only real MCP tool calls are printed -- internal
+                        # SDK mechanisms (e.g. ToolSearch) are omitted so
+                        # the trace is unambiguous.
                         print(
                             f"[tool call] {block.name}({json.dumps(block.input)})",
                             file=sys.stderr,
@@ -317,7 +397,7 @@ def _parse_args() -> argparse.Namespace:
         metavar="PATH",
         help=(
             "Replay mode: read the weather tool's raw text response from "
-            "this file (e.g. fixtures/weather_murmansk.txt) instead of "
+            "this file (e.g. fixtures/weather_longyearbyen.txt) instead of "
             "calling the live OpenWeather MCP server. The exact same "
             "normalize_forecast parsing path is used either way."
         ),

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent.normalize import normalize_forecast
+from agent.normalize import normalize_forecast, parse_current_conditions
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures"
 
@@ -183,30 +183,51 @@ def test_empty_response_yields_no_days():
     assert normalize_forecast(EMPTY_RESPONSE_TEXT) == []
 
 
-def test_kyiv_fixture_parses_to_two_real_days():
+def test_kyiv_fixture_parses_to_three_real_days():
     # fixtures/weather_kyiv.txt: a real captured response (see
-    # agent/main.py's --forecast-from-file replay mode), trimmed to 11
-    # forecast entries (3 + 8), used both here and as the replay-mode
-    # demo input.
+    # agent/main.py's --forecast-from-file replay mode), trimmed to 3
+    # full real calendar days (24 entries: 8+8+8), used both here and as
+    # the replay-mode baseline demo input.
     text = (FIXTURES_DIR / "weather_kyiv.txt").read_text(encoding="utf-8")
     days = normalize_forecast(text)
-    assert [d["date"] for d in days] == ["2026-08-22", "2026-08-23"]
+    assert [d["date"] for d in days] == ["2026-08-23", "2026-08-24", "2026-08-25"]
     by_date = {d["date"]: d for d in days}
-    assert by_date["2026-08-22"]["temp_min_c"] == 21.06
-    assert by_date["2026-08-22"]["temp_max_c"] == 35.19
     assert by_date["2026-08-23"]["temp_min_c"] == 16.41
     assert by_date["2026-08-23"]["temp_max_c"] == 26.26
+    assert by_date["2026-08-24"]["temp_min_c"] == 13.58
+    assert by_date["2026-08-24"]["temp_max_c"] == 24.44
+    assert by_date["2026-08-25"]["temp_min_c"] == 13.43
+    assert by_date["2026-08-25"]["temp_max_c"] == 25.12
 
 
-def test_murmansk_fixture_parses_to_two_real_days():
-    # fixtures/weather_murmansk.txt: a real captured response, trimmed to
-    # 11 forecast entries (3 + 8) -- the replay-mode counterpart to the
-    # live Murmansk demo run (docs/demo-checklist.md step 4b).
-    text = (FIXTURES_DIR / "weather_murmansk.txt").read_text(encoding="utf-8")
+def test_longyearbyen_fixture_parses_to_three_real_days():
+    # fixtures/weather_longyearbyen.txt: a real captured response,
+    # trimmed to 3 full real calendar days (24 entries: 8+8+8) -- the
+    # replay-mode counterpart to the live Longyearbyen demo run
+    # (docs/demo-checklist.md step 4b/4c).
+    text = (FIXTURES_DIR / "weather_longyearbyen.txt").read_text(encoding="utf-8")
     days = normalize_forecast(text)
-    assert [d["date"] for d in days] == ["2026-08-22", "2026-08-23"]
+    assert [d["date"] for d in days] == ["2026-08-23", "2026-08-24", "2026-08-25"]
     by_date = {d["date"]: d for d in days}
-    assert by_date["2026-08-22"]["temp_min_c"] == 9.28
-    assert by_date["2026-08-22"]["temp_max_c"] == 10.29
-    assert by_date["2026-08-23"]["temp_min_c"] == 9.27
-    assert by_date["2026-08-23"]["temp_max_c"] == 10.54
+    assert by_date["2026-08-23"]["temp_min_c"] == 3.77
+    assert by_date["2026-08-23"]["temp_max_c"] == 5.32
+    assert by_date["2026-08-24"]["temp_min_c"] == 1.72
+    assert by_date["2026-08-24"]["temp_max_c"] == 4.24
+    assert by_date["2026-08-25"]["temp_min_c"] == 1.23
+    assert by_date["2026-08-25"]["temp_max_c"] == 3.01
+
+
+def test_parse_current_conditions_from_real_fixture():
+    text = (FIXTURES_DIR / "weather_longyearbyen.txt").read_text(encoding="utf-8")
+    current = parse_current_conditions(text)
+    assert current == {
+        "city": "Longyearbyen",
+        "temp_c": 4.91,
+        "conditions": "overcast clouds",
+    }
+
+
+def test_parse_current_conditions_from_empty_response_is_none():
+    # Same hollow-response signal normalize_forecast uses: an empty city
+    # name means no usable data came back at all.
+    assert parse_current_conditions(EMPTY_RESPONSE_TEXT) is None

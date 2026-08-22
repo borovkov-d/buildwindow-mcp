@@ -396,18 +396,20 @@ Format: `- <question> — <decision> — <why> — <alternative rejected>`.
   6 calendar days survived filtering) — the "drop an incomplete day"
   branch is real, tested code, but this specific live call didn't
   exercise it; only a constructed fixture entry did (see above).
-- **Second demo city — Murmansk, chosen live, not guessed.** Checked
+- **Second demo city — chosen live, not guessed (later replaced; see the
+  phase 6 entry below for the current choice, Longyearbyen).** Checked
   real current forecasts for five cold-weather candidates (Reykjavik,
-  Murmansk, Tromsø, Longyearbyen, Norilsk); Murmansk and Longyearbyen
-  both had every day below `exterior_painting`'s 10°C minimum. Picked
-  Murmansk. The real run's actual blocking constraint turned out to be
-  **humidity** (96% vs. the 80% limit), not temperature — the forecast
-  temperature was only marginally low enough to land in the conditional
-  *warning* band, not a hard violation — and the model correctly
-  identified humidity as the true blocking cause in its final report
-  rather than conflating the two. Not the exact mechanism anticipated
-  going in, but a genuine, live-verified case of `validate_work_window`
-  contributing real information to the outcome.
+  a since-removed city, Tromsø, Longyearbyen, Norilsk); the since-removed
+  city and Longyearbyen both had every day below `exterior_painting`'s
+  10°C minimum. Picked the since-removed city at the time. The real run's
+  actual blocking constraint turned out to be **humidity** (96% vs. the
+  80% limit), not temperature — the forecast temperature was only
+  marginally low enough to land in the conditional *warning* band, not a
+  hard violation — and the model correctly identified humidity as the
+  true blocking cause in its final report rather than conflating the two.
+  Not the exact mechanism anticipated going in, but a genuine,
+  live-verified case of `validate_work_window` contributing real
+  information to the outcome.
 - **Invalid city vs. invalid key: re-confirmed indistinguishable, now
   with a real working key in play, not just an absent one.** Directly
   compared raw tool output for `("Kyivv", <real valid key>)` against
@@ -458,27 +460,31 @@ Format: `- <question> — <decision> — <why> — <alternative rejected>`.
   split into a raw-text-acquisition step (live MCP call, or
   `Path(...).read_text()` for a fixture) and the unchanged
   `normalize_forecast` call that always runs on the result — confirmed
-  by testing replay mode against `fixtures/weather_murmansk.txt` and
-  getting the same qualitative outcome (humidity-driven
-  `no_suitable_window`, `validate_work_window` firing) as the live 4b
-  run, with slightly different real numbers (97% vs. 96% humidity, -0.72
-  vs. -0.73°C margin) reflecting that these were two separate real API
-  calls made at different moments, not the same data replayed twice.
-- **Fixtures are real, trimmed captures, not synthetic.**
-  `fixtures/weather_kyiv.txt` and `fixtures/weather_murmansk.txt` were
+  by testing replay mode against the second demo city's fixture (the one
+  in place at the time; superseded by phase 6, see below) and getting the
+  same qualitative outcome (humidity-driven `no_suitable_window`,
+  `validate_work_window` firing) as the corresponding live run, with
+  slightly different real numbers (97% vs. 96% humidity, -0.72 vs.
+  -0.73°C margin) reflecting that these were two separate real API calls
+  made at different moments, not the same data replayed twice.
+- **Fixtures are real, trimmed captures, not synthetic.** The two
+  fixture files (Kyiv and the then-current second demo city) were
   captured live this phase (11 forecast entries each: one 3-slot day,
   one 8-slot day), grepped for the literal key value before saving
   (0 matches, confirmed) — not written from a template guess.
   `tests/test_normalization.py` gained two tests loading these files
   directly and asserting hand-verified `temp_min_c`/`temp_max_c` per day.
+  (Both fixtures were later recaptured at 3 full days each in phase 6.)
 - **Step 13's trace moved from `wind_ms` to `temp_min_c`.** `wind_ms` (and
   `humidity_pct`) are a constant current-conditions proxy repeated across
   every forecast day (see phase 2's entry on why) — a real, correct, but
   uninteresting value to trace end-to-end, since it never actually
   varies by day. Temperature is a genuine per-day aggregate and is what
-  actually produced the Murmansk warning band this project keeps citing
-  as its running example; retraced using the real captured numbers
-  (9.28°C, margin -0.72) from this phase's own live/replay runs.
+  actually produced the warning band this project keeps citing as its
+  running example; retraced using the real captured numbers (9.28°C,
+  margin -0.72) from this phase's own live/replay runs against the
+  second demo city as it stood at the time (numbers updated again in
+  phase 6 for the replacement city).
 - **OpenWeather call count documented as measured (2 per successful run,
   1 per failed run, 1 in replay mode), not guessed** — counted directly
   from live tool-call traces this phase, cross-checked against
@@ -486,4 +492,55 @@ Format: `- <question> — <decision> — <why> — <alternative rejected>`.
   cited in README are OpenWeather's own published numbers, not
   independently verified by exhausting quota here — deliberately not
   stress-tested, since doing so would risk the real key needed for the
-  rest of this project's own demos.
+  rest of this project's own demos. (Phase 6 made replay mode's count 0,
+  not 1 — see that phase's own entry.)
+
+## Phase 6 — replace the second demo city, make replay mode fully offline
+
+- **Second demo city replaced with Longyearbyen, at the project owner's
+  explicit request.** No further technical justification was given or
+  needed; the previous city (named in earlier phase entries above, now
+  referred to there only as "the second demo city" or "the since-removed
+  city") is not used anywhere in this project going forward. Verified
+  live before committing to it: Longyearbyen's real current forecast was
+  1.23–5.32°C across its whole horizon, entirely below
+  `exterior_painting`'s 10°C minimum (more clearly than the previous
+  city's borderline ~9.3°C), so it reproduces the same "every day
+  unschedulable" demo property. `grep -ri` for the old city's name across
+  the repo returns zero matches after this phase's edits.
+- **Fixtures recaptured at 3 full real calendar days each (24 entries:
+  8+8+8), not 2** — a 2-day fixture with a 2-day work leaves exactly one
+  possible placement position, which doesn't meaningfully exercise the
+  planner's window search. Recapturing surfaced a real bug in the
+  capture script itself (not the product code): the original trim-by-
+  entry-count approach could silently swallow the "Weather Forecast for
+  `<City>`:" header line into the first (possibly-dropped) day's blocks
+  when the day-boundary math didn't land where expected — fixed by
+  isolating that header line explicitly before grouping entries by date,
+  and confirmed by inspecting the regenerated fixture files directly, not
+  just re-running the script and trusting it.
+- **Replay mode made fully network-independent, not just more
+  reproducible.** Added `agent/normalize.py::parse_current_conditions`
+  (parses the same "Current weather for `<city>`:" section
+  `_HUMIDITY_RE`/`_WIND_SPEED_RE` already read) so the current-conditions
+  color note no longer needs a live model-driven call in replay mode.
+  `openweather` is now omitted entirely from both `mcp_servers` and
+  `allowed_tools` when `--forecast-from-file` is used — not just
+  discouraged in the prompt, structurally absent, so there is no
+  connection to even attempt. Two system prompt variants
+  (`SYSTEM_PROMPT_LIVE`, `SYSTEM_PROMPT_OFFLINE`) share their hard-rules
+  and steps 2-5 text via shared constants; `SYSTEM_PROMPT_LIVE`'s content
+  is unchanged from the version already verified live in an earlier
+  phase, so that path's behavior doesn't change here. Verified live: a
+  replay run with a deliberately broken `OWM_API_KEY` *and* an
+  unreachable `MCP_OPENWEATHER_PATH` set at the same time completed
+  normally, produced the correct current-conditions text sourced from
+  the fixture, and `get_mcp_status()` showed only `buildwindow` connected
+  — `openweather` did not appear at all, direct proof no connection was
+  attempted.
+- **Tool-call trace filtered to `mcp__`-prefixed names only.** Internal
+  SDK mechanisms (observed: `ToolSearch`, used by the harness to load
+  deferred tool schemas) were showing up in the printed trace alongside
+  real MCP tool calls, which would read ambiguously to someone watching
+  a demo. `agent/main.py`'s `run()` now only prints `ToolUseBlock`s whose
+  name starts with `mcp__`.

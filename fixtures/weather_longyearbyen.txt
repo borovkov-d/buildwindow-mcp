@@ -1,0 +1,157 @@
+Current weather for Longyearbyen:
+    Conditions:  overcast clouds 
+    Now:         4.91 metric
+    High:        4.91 metric
+    Low:         4.91 metric
+	Pressure:    1010
+	Humidity:    87
+	FeelsLike:   2.33
+	Wind Speed:  3.09
+	Wind Degree:    250
+	Sunrise:     0 Unixtime
+	Sunset:      0 Unixtime
+Weather Forecast for Longyearbyen:
+Date & Time: 2026-08-23 00:00:00 +0000 UTC
+Conditions:  Clouds overcast clouds
+Temp:        3.88
+High:        3.88
+Low:         3.88
+
+Date & Time: 2026-08-23 03:00:00 +0000 UTC
+Conditions:  Snow light snow
+Temp:        3.77
+High:        3.77
+Low:         3.77
+
+Date & Time: 2026-08-23 06:00:00 +0000 UTC
+Conditions:  Clouds overcast clouds
+Temp:        4.08
+High:        4.08
+Low:         4.08
+
+Date & Time: 2026-08-23 09:00:00 +0000 UTC
+Conditions:  Snow light snow
+Temp:        4.57
+High:        4.57
+Low:         4.57
+
+Date & Time: 2026-08-23 12:00:00 +0000 UTC
+Conditions:  Snow light snow
+Temp:        4.79
+High:        4.79
+Low:         4.79
+
+Date & Time: 2026-08-23 15:00:00 +0000 UTC
+Conditions:  Rain light rain
+Temp:        5.32
+High:        5.32
+Low:         5.32
+
+Date & Time: 2026-08-23 18:00:00 +0000 UTC
+Conditions:  Rain light rain
+Temp:        5.16
+High:        5.16
+Low:         5.16
+
+Date & Time: 2026-08-23 21:00:00 +0000 UTC
+Conditions:  Rain light rain
+Temp:        4.96
+High:        4.96
+Low:         4.96
+
+Date & Time: 2026-08-24 00:00:00 +0000 UTC
+Conditions:  Rain light rain
+Temp:        4.24
+High:        4.24
+Low:         4.24
+
+Date & Time: 2026-08-24 03:00:00 +0000 UTC
+Conditions:  Snow light snow
+Temp:        4.04
+High:        4.04
+Low:         4.04
+
+Date & Time: 2026-08-24 06:00:00 +0000 UTC
+Conditions:  Snow light snow
+Temp:        3.99
+High:        3.99
+Low:         3.99
+
+Date & Time: 2026-08-24 09:00:00 +0000 UTC
+Conditions:  Snow light snow
+Temp:        4.15
+High:        4.15
+Low:         4.15
+
+Date & Time: 2026-08-24 12:00:00 +0000 UTC
+Conditions:  Snow light snow
+Temp:        3.61
+High:        3.61
+Low:         3.61
+
+Date & Time: 2026-08-24 15:00:00 +0000 UTC
+Conditions:  Snow snow
+Temp:        2.91
+High:        2.91
+Low:         2.91
+
+Date & Time: 2026-08-24 18:00:00 +0000 UTC
+Conditions:  Snow light snow
+Temp:        2.29
+High:        2.29
+Low:         2.29
+
+Date & Time: 2026-08-24 21:00:00 +0000 UTC
+Conditions:  Snow light snow
+Temp:        1.72
+High:        1.72
+Low:         1.72
+
+Date & Time: 2026-08-25 00:00:00 +0000 UTC
+Conditions:  Snow light snow
+Temp:        1.23
+High:        1.23
+Low:         1.23
+
+Date & Time: 2026-08-25 03:00:00 +0000 UTC
+Conditions:  Snow light snow
+Temp:        1.26
+High:        1.26
+Low:         1.26
+
+Date & Time: 2026-08-25 06:00:00 +0000 UTC
+Conditions:  Snow light snow
+Temp:        1.4
+High:        1.4
+Low:         1.4
+
+Date & Time: 2026-08-25 09:00:00 +0000 UTC
+Conditions:  Clouds overcast clouds
+Temp:        2.21
+High:        2.21
+Low:         2.21
+
+Date & Time: 2026-08-25 12:00:00 +0000 UTC
+Conditions:  Clouds overcast clouds
+Temp:        3.01
+High:        3.01
+Low:         3.01
+
+Date & Time: 2026-08-25 15:00:00 +0000 UTC
+Conditions:  Clouds broken clouds
+Temp:        3.01
+High:        3.01
+Low:         3.01
+
+Date & Time: 2026-08-25 18:00:00 +0000 UTC
+Conditions:  Clouds broken clouds
+Temp:        2.58
+High:        2.58
+Low:         2.58
+
+Date & Time: 2026-08-25 21:00:00 +0000 UTC
+Conditions:  Clouds broken clouds
+Temp:        1.72
+High:        1.72
+Low:         1.72
+

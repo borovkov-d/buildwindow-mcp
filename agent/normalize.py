@@ -1,14 +1,15 @@
 """Deterministic parsing of mcp-openweather's `weather` tool output into
 daily weather figures.
 
-The upstream tool (github.com/mschneider82/mcp-openweather, the version
-`go install ...@latest` actually resolves to as of this writing, tag
-v1.0.0) does **not** return structured JSON. Its `weather` tool renders a
-Go text/template into a single plain-text block: a "Current weather for
-<city>:" section followed by a "Weather Forecast for <city>:" section with
-one repeated block per 3-hour forecast entry (`Date & Time:`, `Conditions:`,
-`Temp:`, `High:`, `Low:`). This was confirmed by reading the installed
-version's actual source, not inferred from its README.
+The upstream tool (github.com/mschneider82/mcp-openweather, built here
+from the `main` branch per commit `e032683` -- see README's Configuration
+section for why `main` and not the `@latest` tag) does **not** return
+structured JSON. Its `weather` tool renders a Go text/template into a
+single plain-text block: a "Current weather for <city>:" section
+followed by a "Weather Forecast for <city>:" section with one repeated
+block per 3-hour forecast entry (`Date & Time:`, `Conditions:`, `Temp:`,
+`High:`, `Low:`). This was confirmed by reading the installed version's
+actual source, not inferred from its README.
 
 Two real, source-verified limitations of the upstream tool shape this
 module's design, rather than being invented here:
@@ -46,6 +47,9 @@ _FORECAST_ENTRY_RE = re.compile(
 )
 _HUMIDITY_RE = re.compile(r"Humidity:\s*(-?[\d.]+)")
 _WIND_SPEED_RE = re.compile(r"Wind Speed:\s*(-?[\d.]+)")
+_CITY_NAME_RE = re.compile(r"Current weather for ([^\n:]*):")
+_CONDITIONS_RE = re.compile(r"Conditions:\s*([^\n]*)")
+_NOW_TEMP_RE = re.compile(r"Now:\s*(-?[\d.]+)")
 
 MIN_SLOTS_PER_DAY = 3
 
@@ -100,3 +104,30 @@ def normalize_forecast(raw_text: str) -> list[dict]:
             }
         )
     return daily
+
+
+def parse_current_conditions(raw_text: str) -> dict | None:
+    """Extract the current-conditions snapshot (city, current temperature,
+    conditions description) from the weather tool's raw text response.
+
+    Used for replay mode's offline current-conditions note: reads from
+    the same "Current weather for <city>:" section normalize_forecast's
+    wind/humidity proxy already comes from, so no live call is needed to
+    get this.
+
+    Returns None for the tool's hollow/empty response shape (an empty
+    city name) -- the same "no usable data" signal normalize_forecast
+    uses for the forecast section.
+    """
+    city_match = _CITY_NAME_RE.search(raw_text)
+    city = city_match.group(1).strip() if city_match else ""
+    if not city:
+        return None
+
+    temp_match = _NOW_TEMP_RE.search(raw_text)
+    conditions_match = _CONDITIONS_RE.search(raw_text)
+    return {
+        "city": city,
+        "temp_c": float(temp_match.group(1)) if temp_match else None,
+        "conditions": conditions_match.group(1).strip() if conditions_match else "",
+    }

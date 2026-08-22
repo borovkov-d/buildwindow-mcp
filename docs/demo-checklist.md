@@ -115,64 +115,70 @@ uv run python -m agent.main
 concrete_finishing (depends on concrete_pour)`.)
 
 Real captured result (this phase, live, valid key): all three works
-scheduled `allowed` with no rescheduling (`excavation` 2026-08-22,
-`concrete_pour` 2026-08-23 to 24, `concrete_finishing` 2026-08-25).
+scheduled `allowed` with no rescheduling (`excavation` 2026-08-23,
+`concrete_pour` 2026-08-24 to 25, `concrete_finishing` 2026-08-26).
 `estimate_curing_time` for `concrete_pour` correctly reported
-`capped: true` — the supplied 6-day forecast doesn't extend far enough
-past the pour date to reach full Nurse-Saul maturity (3586.68 of the
-required 5040 units accumulated by the end of the forecast). **Point
-out:** Kyiv's real August weather is warm enough that nothing gets
-rescheduled — a technically-correct but visually unconvincing demo of
-weather's influence on its own, which is exactly why step 4b exists.
+`capped: true` — the supplied forecast doesn't extend far enough past
+the pour date to reach full Nurse-Saul maturity (2834.64 of the required
+5040 units accumulated by the end of the forecast). **Point out:**
+Kyiv's real August weather is warm enough that nothing gets rescheduled
+— a technically-correct but visually unconvincing demo of weather's
+influence on its own, which is exactly why step 4b exists.
 
 **4b. A city where the real forecast actually forces a reschedule.**
 
 ```
-uv run python -m agent.main "Murmansk" '[{"work_code": "excavation", "duration_days": 1, "depends_on": []}, {"work_code": "exterior_painting", "duration_days": 2, "depends_on": []}]'
+uv run python -m agent.main "Longyearbyen" '[{"work_code": "excavation", "duration_days": 1, "depends_on": []}, {"work_code": "exterior_painting", "duration_days": 2, "depends_on": []}]'
 ```
 
-Chosen by actually checking real current forecasts for several cold
-cities (Reykjavik, Murmansk, Tromsø, Longyearbyen, Norilsk) against
-`exterior_painting`'s 10°C minimum — Murmansk's real forecast this phase
-had every one of its 6 forecast days below that threshold. Real captured
-result:
-- `excavation` scheduled `allowed` (2026-08-22) — tolerates the cold.
+Chosen by actually checking real current forecasts (see `DECISIONS.md`)
+against `exterior_painting`'s 10°C minimum — Longyearbyen's real
+forecast this phase was 1.23–5.32°C across its whole 3-5 day horizon,
+entirely below that threshold. Real captured result:
+- `excavation` scheduled `allowed` (2026-08-23) — tolerates the cold
+  (its own range is −10 to 40°C).
 - `exterior_painting` (2 days) came back `unschedulable`,
   `no_suitable_window`.
 - `validate_work_window` fired automatically (per phase 3's system-prompt
-  addition) on the first forecast day, and the model correctly identified
-  the *actual* blocking constraint as **humidity** (96% vs. the 80%
-  maximum), not temperature — the real temperature that day (9.27°C) was
-  only marginally below the 10°C limit, close enough to land in the
-  conditional *warning* band rather than a hard violation, and the model
-  distinguished the two rather than conflating them.
+  addition) on the first forecast day, and the model correctly cited
+  **both** breached constraints together: **temperature** (3.77°C vs. the
+  10.0°C minimum, margin −6.23°C — far outside the 2°C conditional band,
+  so a hard violation this time, not just a warning) and **humidity**
+  (87% vs. the 80% maximum). Unlike an earlier demo city (see
+  `DECISIONS.md`) where temperature only landed as a warning, here it's
+  independently blocking on its own — the model reported both causes
+  rather than picking one.
 
 **Point out:** this is genuine evidence that `validate_work_window`'s
 output changes what the engineer is told, and that the specific breached
-constraint it names is real, not guessed by the model — and that
-weather's real influence on the outcome sometimes shows up in a
-different constraint than the one you'd expect going in.
+constraint(s) it names are real, not guessed by the model.
 
-**4c. Replay mode — if Murmansk has warmed up by demo day.** Weather
-changes; the reschedule in 4b depends on Murmansk's *current* real
-forecast being cold enough, which may no longer hold by grading day. A
-recorded fallback exists for exactly this:
+**4c. Replay mode — fully offline, no network or key needed at all.**
+Weather changes, and a demo shouldn't depend on the internet working on
+the day. This mode doesn't just re-use a recorded forecast (phase 5) —
+it now supplies current conditions from the same file too, so
+`openweather` isn't connected at all:
 
 ```
-uv run python -m agent.main "Murmansk" '[{"work_code": "excavation", "duration_days": 1, "depends_on": []}, {"work_code": "exterior_painting", "duration_days": 2, "depends_on": []}]' --forecast-from-file fixtures/weather_murmansk.txt
+uv run python -m agent.main "Longyearbyen" '[{"work_code": "excavation", "duration_days": 1, "depends_on": []}, {"work_code": "exterior_painting", "duration_days": 2, "depends_on": []}]' --forecast-from-file fixtures/weather_longyearbyen.txt
 ```
 
-`--forecast-from-file` swaps only the *source* of the raw weather text —
-`fixtures/weather_murmansk.txt` is a real response captured live this
-phase (not synthetic, not a fabricated example; see its own file for the
-provenance note), trimmed to 11 real forecast entries. The exact same
-`normalize_forecast` parsing path runs on it as on a live call — no
-special-cased bypass. Confirmed live this phase to reproduce the same
-outcome as the 4b live run: `exterior_painting` unschedulable,
-`no_suitable_window`, `validate_work_window` firing on real recorded
-humidity (97%) and temperature (9.28°C) values. A matching
-`fixtures/weather_kyiv.txt` exists for the same purpose on the baseline
-scenario.
+`--forecast-from-file` swaps the *source* of both the daily forecast and
+the current-conditions note — `fixtures/weather_longyearbyen.txt` is a
+real response captured live this phase (not synthetic, not a fabricated
+example), trimmed to 3 full real calendar days (24 entries). The exact
+same `normalize_forecast`/`parse_current_conditions` parsing path runs
+on it as on a live call — no special-cased bypass. **Verified live with
+a deliberately broken `OWM_API_KEY` and an unreachable
+`MCP_OPENWEATHER_PATH` set at the same time** — the run still completed
+normally and reproduced the same outcome as 4b's live run:
+`exterior_painting` unschedulable/`no_suitable_window`, both temperature
+and humidity cited by `validate_work_window`, current conditions correct
+(4.91°C, overcast clouds — matching the fixture's header exactly), and
+`get_mcp_status()` discovery showing **only** `buildwindow` connected —
+`openweather` doesn't even appear, proving no connection was attempted.
+A matching `fixtures/weather_kyiv.txt` exists for the same purpose on
+the baseline scenario.
 
 ---
 
@@ -420,35 +426,37 @@ seeing the validation error, or explain the invalid input to the user.
 
 ## 13. Trace one value end-to-end, by file and function
 
-Trace `temp_min_c` for Murmansk, 2026-08-22, in this exact order — this
-value is a genuine real per-day aggregate (unlike `wind_ms`/`humidity_pct`,
-which are a constant current-conditions proxy repeated across every day
-— see step 5's note — a fine documented limitation, but a weak choice to
-trace end-to-end since it never varies by day; temperature is the real
-per-day signal and is what actually drove the 4b/4c reschedule):
+Trace `temp_min_c` for Longyearbyen, 2026-08-23, in this exact order —
+this value is a genuine real per-day aggregate (unlike
+`wind_ms`/`humidity_pct`, which are a constant current-conditions proxy
+repeated across every day — see step 5's note — a fine documented
+limitation, but a weak choice to trace end-to-end since it never varies
+by day; temperature is the real per-day signal and is what actually
+drove the 4b/4c reschedule):
 
 **a.** OpenWeather's raw response — the external `mcp-openweather`
 binary's `weather` tool returns one **plain-text** block (not JSON;
 confirmed by reading its source — see `docs/tool-contracts.md`). The
-forecast section's real entry for 2026-08-22 18:00:00 UTC (from
-`fixtures/weather_murmansk.txt`) reads `Low: 9.28`; two more 3-hour
-entries that same calendar day read `Low: 10.29` and `Low: 10.02`.
+forecast section's real entries for 2026-08-23 (from
+`fixtures/weather_longyearbyen.txt`) read `Low: 3.88`, `Low: 3.77`,
+`Low: 4.08`, `Low: 4.57`, `Low: 4.79`, `Low: 5.32`, `Low: 5.16`,
+`Low: 4.96` (8 three-hour slots).
 
-**b.** `agent/main.py`'s `_fetch_daily_forecast` gets this raw text
+**b.** `agent/main.py`'s `_get_raw_weather_text` gets this raw text
 (either via a live low-level MCP call, or read from a replay fixture —
 either way, the same next step runs) and hands it to
-`agent/normalize.py`'s `normalize_forecast`. That function's
-`_FORECAST_ENTRY_RE` regex extracts each 3-hour entry's `Low`/`High`,
-groups them by calendar date, and computes
-`temp_min_c = min(low for low, _ in slots)` for 2026-08-22 —
-`min(9.28, 10.29, 10.02) = 9.28` — deterministic, tested Python
-(`tests/test_normalization.py`), not model reasoning. See
-`DECISIONS.md`'s "Normalization moved from LLM-prompt instructions to a
-pure, unit-tested Python function" entry for why this is code, not a
-model-interpreted step.
+`agent/normalize.py`'s `normalize_forecast` (via `_daily_forecast_from_text`).
+That function's `_FORECAST_ENTRY_RE` regex extracts each 3-hour entry's
+`Low`/`High`, groups them by calendar date, and computes
+`temp_min_c = min(low for low, _ in slots)` for 2026-08-23 —
+`min(3.88, 3.77, 4.08, 4.57, 4.79, 5.32, 5.16, 4.96) = 3.77` —
+deterministic, tested Python (`tests/test_normalization.py`), not model
+reasoning. See `DECISIONS.md`'s "Normalization moved from LLM-prompt
+instructions to a pure, unit-tested Python function" entry for why this
+is code, not a model-interpreted step.
 
 **c.** `agent/main.py`'s `_build_prompt` embeds the resulting
-`{"date": "2026-08-22", "temp_min_c": 9.28, ...}` dict directly as JSON
+`{"date": "2026-08-23", "temp_min_c": 3.77, ...}` dict directly as JSON
 in the user message sent to the LLM. The model reads this pre-computed
 value — it does not aggregate anything itself — and passes it through
 verbatim as part of the JSON arguments to a `plan_work_schedule` or
@@ -461,25 +469,26 @@ validated by Pydantic (-60..60 range) before the function body runs.
 **e.** `server/rules.py`'s `evaluate_window()` function reads
 `window.temp_min_c` and compares it to `req.temp_min_c` (10.0 for
 `exterior_painting`) — the line
-`if window.temp_min_c < req.temp_min_c:`. Breached (9.28 < 10.0), so it
+`if window.temp_min_c < req.temp_min_c:`. Breached (3.77 < 10.0), so it
 calls the internal `_classify()` helper, which computes
-`margin = actual_value - limit_value = 9.28 - 10.0 = -0.72` and checks
-`abs(margin) <= TEMP_CONDITIONAL_BAND_C` (2.0) — true, so this lands as
-a *warning*, not a hard violation.
+`margin = actual_value - limit_value = 3.77 - 10.0 = -6.23` and checks
+`abs(margin) <= TEMP_CONDITIONAL_BAND_C` (2.0) — false (6.23 > 2.0), so
+this lands as a hard **violation**, not a warning.
 
 **f.** The result becomes a `ConstraintViolation` (in
 `server/schemas.py`) with `constraint="temperature_min"`,
-`actual_value=9.28`, `margin=-0.72`, embedded in
-`ValidateWorkWindowOutput.warnings` — a real, live-captured example
-(step 4b/4c), alongside the genuinely blocking `humidity` violation
-(97% vs. the 80% limit) in the same response's `violations` list.
+`actual_value=3.77`, `margin=-6.23`, embedded in
+`ValidateWorkWindowOutput.violations` — a real, live-captured example
+(step 4b/4c), alongside a second, independently blocking `humidity`
+violation (87% vs. the 80% limit) in the same response's `violations`
+list.
 
 **g.** This surfaces back to the model as the tool's JSON output — real
 captured values from this phase's live and replay runs (both matched).
 
 **h.** The model reads both entries and, per `agent/main.py`'s system
 prompt rule (cite the exact constraint and value), correctly reported
-**humidity** as the blocking cause and the temperature figure as a
-secondary, non-blocking warning — distinguishing a hard violation from a
-conditional warning in its own final natural-language answer, not just
-echoing the raw numbers.
+**both** temperature and humidity as blocking causes in its final
+natural-language answer, rather than picking one — since both are hard
+violations here, unlike an earlier demo city where temperature only
+reached the conditional warning band (see `DECISIONS.md`).

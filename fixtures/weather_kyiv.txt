@@ -1,34 +1,16 @@
 Current weather for Kyiv:
     Conditions:  clear sky 
-    Now:         33.73 metric
-    High:        33.73 metric
-    Low:         33.73 metric
+    Now:         34.84 metric
+    High:        34.84 metric
+    Low:         34.84 metric
 	Pressure:    1006
-	Humidity:    33
-	FeelsLike:   33.46
+	Humidity:    32
+	FeelsLike:   34.87
 	Wind Speed:  0.45
-	Wind Degree:    21
+	Wind Degree:    247
 	Sunrise:     1787367408 Unixtime
 	Sunset:      1787418323 Unixtime
 Weather Forecast for Kyiv:
-Date & Time: 2026-08-22 15:00:00 +0000 UTC
-Conditions:  Clear clear sky
-Temp:        33.73
-High:        35.19
-Low:         33.73
-
-Date & Time: 2026-08-22 18:00:00 +0000 UTC
-Conditions:  Clear clear sky
-Temp:        31.07
-High:        31.07
-Low:         25.76
-
-Date & Time: 2026-08-22 21:00:00 +0000 UTC
-Conditions:  Clouds scattered clouds
-Temp:        25.28
-High:        25.28
-Low:         21.06
-
 Date & Time: 2026-08-23 00:00:00 +0000 UTC
 Conditions:  Rain light rain
 Temp:        17.45
@@ -76,4 +58,100 @@ Conditions:  Clear clear sky
 Temp:        18.05
 High:        18.05
 Low:         18.05
+
+Date & Time: 2026-08-24 00:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        13.58
+High:        13.58
+Low:         13.58
+
+Date & Time: 2026-08-24 03:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        13.74
+High:        13.74
+Low:         13.74
+
+Date & Time: 2026-08-24 06:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        18.2
+High:        18.2
+Low:         18.2
+
+Date & Time: 2026-08-24 09:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        22.46
+High:        22.46
+Low:         22.46
+
+Date & Time: 2026-08-24 12:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        24.44
+High:        24.44
+Low:         24.44
+
+Date & Time: 2026-08-24 15:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        23.83
+High:        23.83
+Low:         23.83
+
+Date & Time: 2026-08-24 18:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        18.72
+High:        18.72
+Low:         18.72
+
+Date & Time: 2026-08-24 21:00:00 +0000 UTC
+Conditions:  Clouds broken clouds
+Temp:        16.37
+High:        16.37
+Low:         16.37
+
+Date & Time: 2026-08-25 00:00:00 +0000 UTC
+Conditions:  Clouds scattered clouds
+Temp:        14.9
+High:        14.9
+Low:         14.9
+
+Date & Time: 2026-08-25 03:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        13.43
+High:        13.43
+Low:         13.43
+
+Date & Time: 2026-08-25 06:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        18.09
+High:        18.09
+Low:         18.09
+
+Date & Time: 2026-08-25 09:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        22.8
+High:        22.8
+Low:         22.8
+
+Date & Time: 2026-08-25 12:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        25.12
+High:        25.12
+Low:         25.12
+
+Date & Time: 2026-08-25 15:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        24.78
+High:        24.78
+Low:         24.78
+
+Date & Time: 2026-08-25 18:00:00 +0000 UTC
+Conditions:  Clear clear sky
+Temp:        19.86
+High:        19.86
+Low:         19.86
+
+Date & Time: 2026-08-25 21:00:00 +0000 UTC
+Conditions:  Clouds few clouds
+Temp:        18.15
+High:        18.15
+Low:         18.15
 
