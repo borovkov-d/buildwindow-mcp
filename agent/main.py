@@ -1,7 +1,10 @@
 """BuildWindow agent: fetches and normalizes a real weather forecast for a
 city (via a direct, deterministic MCP client call to the OpenWeather MCP
-server -- not via the LLM), then asks the model to plan a week of
-construction work against it using the BuildWindow MCP server.
+server -- not via the LLM), then asks the model to plan weather-dependent
+works against it using the BuildWindow MCP server. Which works exist, and
+their weather limits, come from the server's dataset (the built-in
+construction example, or a file named by BUILDWINDOW_DATASET -- the server
+subprocess inherits this process's environment).
 
 Two modes:
 - **Live** (default): the model ALSO connects to the openweather server
@@ -78,26 +81,27 @@ _SHARED_PROCEDURE_TAIL = """\
    forecast.
 3. For every work reported unschedulable with reason no_suitable_window,
    call validate_work_window for that same work against the first day of
-   the supplied forecast, so you can hand the engineer the specific
+   the supplied forecast, so you can hand the user the specific
    breached constraint and its numbers, not just the reason code.
 4. For every scheduled work whose type has a curing stage (check with
    lookup_work_requirements if unsure -- base_curing_hours is not null),
    call estimate_curing_time using the daily temperatures for the days it
    occupies, so you can report when it will actually be ready, not just
-   when construction activity finishes.
+   when the work itself finishes.
 5. Report: the one-sentence current-conditions note from step 1, the
    schedule, every rescheduled/unschedulable work with its specific cited
    reason (including the validate_work_window detail from step 3 where
    applicable), and curing-adjusted readiness dates."""
 
 # Live mode: the model genuinely connects to openweather and may call its
-# "weather" tool itself (see run()'s allowed_tools/mcp_servers) -- kept
-# byte-for-byte equivalent to the version verified live in an earlier
-# phase, so that already-confirmed behavior doesn't change here.
-SYSTEM_PROMPT_LIVE = f"""You are BuildWindow's construction scheduling assistant.
+# "weather" tool itself (see run()'s allowed_tools/mcp_servers) -- the
+# procedure and hard rules are unchanged from the version verified live in
+# an earlier phase; only construction-specific wording was neutralized
+# (phase 10), since the works now come from whatever dataset is loaded.
+SYSTEM_PROMPT_LIVE = f"""You are BuildWindow's weather-window scheduling assistant.
 
 You have two MCP connections: a "buildwindow" server with four
-deterministic construction-planning tools, and an "openweather" server
+deterministic weather-window planning tools, and an "openweather" server
 with one "weather" tool. You may call "weather" yourself, but ONLY for
 the narrow purpose described in step 1 below -- the daily forecast that
 drives all scheduling has already been fetched and aggregated into daily
@@ -113,7 +117,7 @@ Procedure:
 1. Call the weather tool once for the requested city to get its CURRENT
    conditions. Use this only to write one descriptive sentence in your
    final report (city, current temperature, current conditions) -- purely
-   informational color for the engineer, never an input to any scheduling
+   informational color for the user, never an input to any scheduling
    decision.
 {_SHARED_PROCEDURE_TAIL}
 """
@@ -121,10 +125,10 @@ Procedure:
 # Offline/replay mode: openweather is not connected in this session at
 # all (see run()) -- current conditions are supplied directly instead of
 # fetched, and the model is told plainly there is no weather tool to call.
-SYSTEM_PROMPT_OFFLINE = f"""You are BuildWindow's construction scheduling assistant.
+SYSTEM_PROMPT_OFFLINE = f"""You are BuildWindow's weather-window scheduling assistant.
 
 You have one MCP connection: a "buildwindow" server with four
-deterministic construction-planning tools. There is no weather tool
+deterministic weather-window planning tools. There is no weather tool
 connected in this session. The daily forecast that drives all scheduling,
 and a current-conditions snapshot for the requested city, have both
 already been fetched and are given to you directly in the user message
@@ -277,7 +281,7 @@ def _build_prompt(
     current_conditions: dict | None = None,
 ) -> str:
     parts = [
-        f"Plan the following construction works in {city} using the "
+        f"Plan the following works in {city} using the "
         "buildwindow tools. The daily weather forecast (already fetched "
         "and aggregated from the raw provider data) is given below.\n\n"
     ]

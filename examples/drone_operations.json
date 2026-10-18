@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0",
+  "work_types": [
+    {
+      "code": "aerial_photography",
+      "name": "Aerial photography flight",
+      "category": "imaging",
+      "temp_min_c": -10,
+      "temp_max_c": 40,
+      "wind_max_ms": 10,
+      "humidity_max_pct": 90,
+      "precipitation_allowed": false,
+      "base_curing_hours": null,
+      "reference_note": "Illustrative example: a typical small multirotor's operating envelope; rain degrades image quality and is outside most consumer airframes' ingress rating. Check your aircraft's manufacturer specification and local regulations."
+    },
+    {
+      "code": "lidar_survey",
+      "name": "LiDAR mapping survey",
+      "category": "survey",
+      "temp_min_c": -10,
+      "temp_max_c": 40,
+      "wind_max_ms": 8,
+      "humidity_max_pct": 85,
+      "precipitation_allowed": false,
+      "base_curing_hours": null,
+      "reference_note": "Illustrative example: survey-grade flight lines need a stable attitude, so the wind limit is tighter than for imaging; droplets and fog scatter the laser returns. Check your sensor and aircraft specifications."
+    },
+    {
+      "code": "thermal_inspection",
+      "name": "Thermal inspection of roofs and solar arrays",
+      "category": "inspection",
+      "temp_min_c": -20,
+      "temp_max_c": 30,
+      "wind_max_ms": 7,
+      "humidity_max_pct": 85,
+      "precipitation_allowed": false,
+      "base_curing_hours": null,
+      "reference_note": "Illustrative example: radiometric readings lose contrast in heat, wind cools surfaces and masks defects, and wet surfaces distort emissivity. Check the inspection standard you report against."
+    },
+    {
+      "code": "crop_spraying",
+      "name": "Crop spraying by drone",
+      "category": "agriculture",
+      "temp_min_c": 5,
+      "temp_max_c": 28,
+      "wind_max_ms": 4,
+      "humidity_max_pct": 95,
+      "precipitation_allowed": false,
+      "base_curing_hours": null,
+      "reference_note": "Illustrative example: spray drift rises sharply with wind, product evaporates in heat, and rain washes it off the canopy. Check the product label and local plant-protection rules, which take precedence."
+    },
+    {
+      "code": "parcel_delivery",
+      "name": "Parcel delivery flight",
+      "category": "logistics",
+      "temp_min_c": -15,
+      "temp_max_c": 40,
+      "wind_max_ms": 12,
+      "humidity_max_pct": 100,
+      "precipitation_allowed": true,
+      "base_curing_hours": null,
+      "reference_note": "Illustrative example: assumes a weather-sealed delivery airframe rated for light rain; battery capacity limits cold-weather range. Check your aircraft's ingress rating and operating authorisation."
+    }
+  ]
+}

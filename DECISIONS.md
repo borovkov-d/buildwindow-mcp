@@ -685,3 +685,145 @@ Format: `- <question> — <decision> — <why> — <alternative rejected>`.
   (`Thumbs.db`) aren't present, but nothing of that shape currently
   exists in the working tree either — not added speculatively for
   files that aren't there.
+
+## Phase 10 — dataset-agnostic engine, Agensi listing preparation
+
+- **Repositioning: BuildWindow is now a deterministic weather-window
+  planning engine whose thresholds the user supplies, not a construction
+  planner.** Selling the hard-coded construction dataset as a decision tool
+  would have meant people acting on thresholds this project itself calls
+  illustrative. `server/rules.py` was already domain-independent and is
+  untouched; what changed is where the dataset comes from and how the
+  project describes itself. The built-in construction dataset stays as the
+  default *example*.
+- **Dataset selection: `BUILDWINDOW_DATASET`, falling back to the built-in
+  file; an empty or whitespace-only value counts as unset.** The empty case
+  matters because `.env.example` ships `BUILDWINDOW_DATASET=` blank, so a
+  copied `.env` must not change behavior. The path is resolved once, at the
+  first `get_dataset()` call (still `lru_cache`d); a relative path is
+  resolved against the server's working directory, and README/SKILL.md
+  recommend an absolute one. A set-but-missing path fails with a message
+  naming the variable, rather than a bare `FileNotFoundError`.
+- **`WorkCode` and `WorkCategory` changed from `StrEnum` to open
+  snake_case string types (`server/schemas.py::_DatasetIdentifier`, a `str`
+  subclass with Pydantic core-schema and JSON-schema hooks).** The enum
+  blocked any dataset with other codes, and `WorkCategory` had the same
+  problem (drone categories are not construction trades), so both changed.
+  - *Accepting custom codes:* the core schema is `str` with pattern
+    `^[a-z][a-z0-9_]*$` — shape only.
+  - *Unknown codes still name the valid list:* existence is checked by
+    `Dataset.get_by_code` (previously a "defensive-only, unreachable"
+    safety net, now the primary check), whose `[unknown_work_code]`
+    message lists the *loaded* dataset's codes. A new
+    `UnknownCategoryError` (`unknown_category`) does the same for
+    `get_by_category` — before, an unknown category was rejected by the
+    enum; now the lookup contract's "empty list for an empty category"
+    case is replaced by this error, since categories are derived from the
+    data and can never be empty.
+  - *Schemas stay meaningful:* the JSON-schema hook injects an `enum` of
+    the loaded dataset's codes/categories (plus a description).
+    `MCPServer` generates each tool's schema once, at registration, so the
+    model sees the real options of the dataset the server started with.
+    If the dataset can't load, the hook omits the enum and
+    `server.main.main()` still exits on the `DatasetError` as before.
+  - *Existing tests untouched:* the built-in example's codes remain as
+    class constants (`WorkCode.CONCRETE_POUR` etc.), now plain `str`
+    values rather than enum members, so none of the 51 existing tests
+    changed.
+  - **Trade-offs accepted:** the schema `enum` is advisory — Pydantic does
+    not enforce it, the dataset check does — so an unknown code now
+    reaches the tool body and fails as a domain error
+    (`[unknown_work_code] … Known codes: …`) instead of a Pydantic
+    validation error: arguably more readable, but a different error
+    channel than before. The code set is fixed per server process:
+    changing the dataset means restarting the server. Importing
+    `server.main` now loads the dataset (schema generation needs it)
+    instead of waiting for the first tool call.
+  - **Rejected:** a `StrEnum` built dynamically at import time from the
+    active dataset — `WorkRequirements` validation would then depend on
+    whichever dataset is active, so `Dataset.load(other_file)` could not
+    validate a file with different codes in-process, and custom-dataset
+    tests would need subprocesses. A bare `Annotated[str, ...]` alias —
+    simpler, but the schema would lose the list of options and roughly 60
+    `WorkCode.X` references in tests would break.
+- **`plan_work_schedule` now validates every `depends_on` code against the
+  dataset before planning.** Under the enum, a typo in a dependency was a
+  schema error; with an open string type it would have silently become
+  `dependency_blocked` ("not present in this request"). The check lives in
+  `server/main.py`, keeping `rules.py` unchanged. A valid code that is
+  merely absent from the request is still `dependency_blocked`, as before.
+- **Dataset validation errors are written for someone authoring their
+  first dataset.** `_format_validation_error` lists every problem as
+  `work_types[i] (code 'x').field: message (got value)`; missing and
+  unknown fields list the allowed field names; a malformed code explains
+  snake_case with an example. Two stricter checks were added: no unknown
+  top-level keys (`_WorkTypesFile` now has `extra="forbid"`, like every
+  other model) and at least one work type. The "dataset must contain every
+  `WorkCode` member" cross-check was removed — it only made sense with a
+  closed enum.
+- **`examples/drone_operations.json`: five drone missions in five
+  categories, same fields** — the proof that the engine is
+  domain-agnostic; its limits are labelled illustrative in every
+  `reference_note`. Verified through a real stdio MCP session with
+  `BUILDWINDOW_DATASET` set: the schema's `work_code` enum lists the five
+  drone codes, `plan_work_schedule` over the Longyearbyen fixture forecast
+  yields a mix of `allowed` and `conditional` placements (with
+  `crop_spraying`'s 5 C minimum producing a within-band warning), and a
+  construction code fails with `unknown_work_code` listing the drone
+  codes.
+- **Tool descriptions and the reference agent's prompts lost their
+  construction-specific wording** ("construction scheduling assistant",
+  "construction works", "engineer" → neutral terms); the procedure and the
+  hard rules in the prompts are unchanged, and `agent/main.py`'s comment
+  that the live prompt was "byte-for-byte" the earlier verified version
+  was updated accordingly. The agent needed no code change for custom
+  datasets: the BuildWindow server subprocess inherits
+  `BUILDWINDOW_DATASET` — verified via discovery: with a nonexistent path
+  the agent's `buildwindow` connection reports `failed`, with the drone
+  dataset `connected`.
+- **The agent-level run on the drone dataset could not complete this
+  phase:** the Claude Agent SDK session failed with `OAuth session expired
+  and could not be refreshed` (an expired login on this machine, not a
+  code issue — the MCP connection itself came up). The server-level runs
+  above stand in for it; the agent run is left for the project owner to
+  repeat after re-authenticating. Both documented failure scenarios
+  (invalid city; garbage `OWM_API_KEY` via the process environment) still
+  end with `Forecast unavailable…` before any LLM session, unchanged.
+- **SKILL.md package at `skill/buildwindow/` (folder name = `name:
+  buildwindow`).** Agensi's format reference requires the frontmatter
+  `name` to match the folder name exactly (lowercase, digits, hyphens) and
+  a 1–3 sentence `description` with trigger phrases; `when_to_use` is
+  optional and was added. The body is rewritten from
+  `docs/tool-contracts.md`: when to use the tools, the "verdict comes from
+  the tool" rule, that thresholds come from the user and the built-in
+  dataset is not normative, the call procedure, and how to react to each
+  error. `references/dataset-format.md` holds the dataset format, per
+  Agensi's "at least one reference file" checklist item. Installation is
+  written as steps for the *user* — the skill tells the agent not to
+  install anything itself — and discloses that the server makes no
+  network calls and needs no credentials, given Agensi's
+  network-transparency and "scripts must not install packages" checks.
+- **What Agensi does not document, and was therefore assumed:** field
+  length limits (none published beyond "1–3 sentences"); any rule for
+  skills that depend on a separately installed local MCP server (none
+  found — the skill assumes this is acceptable when disclosed); how tags,
+  category and supported agents are set (the dashboard form, not the
+  package); whether updates are re-reviewed. Agensi delivers skills
+  through its own connector ("not downloaded"), which is why the skill
+  points at the public repository for the server instead of bundling it.
+- **README rewritten for someone deciding whether to install it:** engine
+  first, quick start, "Bring your own dataset", tools, skill, then the
+  reference agent as an optional example client. Limitations are split
+  into the engine's own and those of the reference agent's OpenWeather
+  tool (constant wind/humidity, no precipitation, ~5-day horizon,
+  indistinguishable failures) — the latter disappear with a different
+  forecast source. The KSE AI Agentic School context moved to an "Origin"
+  section at the end. `docs/demo-checklist.md`'s intro ("grading demo")
+  and step 12 (enum-based error), and `docs/tool-contracts.md`'s
+  "defensive-only" error notes and model-facing descriptions, were
+  corrected to match the new behavior; the documents themselves remain.
+- **Version bumped to 0.2.0** and the `pyproject.toml` description
+  rewritten — the public contract of `lookup_work_requirements` changed
+  (`unknown_category` replaces the empty-category result).
+- **The commit carries no AI attribution trailer**, consistent with the
+  whole history (phase 9 audit) — the owner's explicit choice this phase.

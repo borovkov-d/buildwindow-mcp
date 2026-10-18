@@ -1,7 +1,9 @@
 # Live demo checklist
 
-A step-by-step walkthrough script for a live 10-15 minute grading demo of
-BuildWindow. Run each step from the repository root in order. Commands are
+A step-by-step end-to-end walkthrough of BuildWindow and its reference
+agent (originally written as a live 10-15 minute demo script). It uses the
+built-in example dataset; see README -> "Bring your own dataset" for
+running the same steps on your own limits. Run each step from the repository root in order. Commands are
 copy-pasteable as written; PowerShell-specific variants are noted where they
 differ.
 
@@ -23,10 +25,11 @@ uv run python -m server.main
 BuildWindow server starts and runs completely on its own, with no
 dependency on the agent or on OpenWeather.
 
-**Expected stderr** (captured verbatim from a real run):
+**Expected stderr** (captured verbatim from a real run; the path is
+wherever the repository lives):
 
 ```
-BuildWindow MCP server ready: 4 tools, 12 work types loaded
+BuildWindow MCP server ready: 4 tools, 12 work types loaded from <repo>\server\data\work_types.json
 ```
 
 Stop it with **Ctrl+C**.
@@ -468,13 +471,14 @@ uv run python -m agent.main "Kyiv" '[{"work_code": "concrete_pouring", "duration
 Note `concrete_pouring` — not a real work code; the real one is
 `concrete_pour`.
 
-**Point out:** `work_code` is a Pydantic `WorkCode` enum on every
-BuildWindow tool's input schema, so this becomes a validation failure at
-the MCP boundary the moment the model tries to call a BuildWindow tool
-with it — before any tool body runs. The error message lists all valid
-codes (per `docs/tool-contracts.md` and `DECISIONS.md`'s
-`unknown_work_code` entry). Expect the model to either self-correct after
-seeing the validation error, or explain the invalid input to the user.
+**Point out:** every BuildWindow tool's input schema lists the loaded
+dataset's codes as an `enum`, and the tool itself checks the code against
+the dataset before any rule runs, so this call fails with
+`[unknown_work_code] Work code 'concrete_pouring' is not present in the
+dataset. Known codes: ...` — the message lists every valid code (see
+`docs/tool-contracts.md` and `DECISIONS.md`, phase 10). Expect the model to
+either self-correct after seeing the error, or explain the invalid input to
+the user.
 
 ---
 

@@ -9,15 +9,85 @@ from __future__ import annotations
 
 from datetime import date as date_
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Any, ClassVar
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    GetCoreSchemaHandler,
+    GetJsonSchemaHandler,
+    model_validator,
+)
+from pydantic.json_schema import JsonSchemaValue
+from pydantic_core import CoreSchema, core_schema
 
 from server.errors import InvalidLookupCriteriaError, InvalidWeatherWindowError
 
+# Work codes and categories are snake_case identifiers defined by whichever
+# dataset is loaded (see server/dataset.py and BUILDWINDOW_DATASET).
+IDENTIFIER_PATTERN = r"^[a-z][a-z0-9_]*$"
 
-class WorkCode(StrEnum):
-    """The 12 construction work types known to the BuildWindow dataset."""
+
+def _loaded_identifiers(kind: str) -> list[str] | None:
+    """Codes or categories of the active dataset, for the JSON Schema enum.
+
+    Best effort: if the dataset can't be loaded, the enum is simply left
+    out of the schema -- server.main.main() then reports the DatasetError
+    itself and exits, so a schema without an enum is never served.
+    """
+    from server.dataset import get_dataset  # deferred: dataset imports schemas
+    from server.errors import DatasetError
+
+    try:
+        dataset = get_dataset()
+    except DatasetError:
+        return None
+    return list(dataset.codes if kind == "code" else dataset.categories)
+
+
+class _DatasetIdentifier(str):
+    """A snake_case identifier whose valid values come from the loaded dataset.
+
+    Validation only checks the shape (IDENTIFIER_PATTERN); whether the value
+    actually exists is checked against the dataset by
+    Dataset.get_by_code / get_by_category, whose errors list the valid
+    values. The JSON Schema shown to the calling model additionally carries
+    an `enum` of the loaded dataset's values, so the model sees the real
+    options up front.
+    """
+
+    _kind: ClassVar[str]
+    _schema_description: ClassVar[str]
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source: Any, handler: GetCoreSchemaHandler
+    ) -> CoreSchema:
+        return core_schema.str_schema(pattern=IDENTIFIER_PATTERN)
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, schema: CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        json_schema = handler(schema)
+        json_schema["description"] = cls._schema_description
+        values = _loaded_identifiers(cls._kind)
+        if values:
+            json_schema["enum"] = values
+        return json_schema
+
+
+class WorkCode(_DatasetIdentifier):
+    """Identifier of one work type in the loaded dataset.
+
+    Not an enum: any snake_case code defined by the active dataset is valid.
+    The constants below are the codes of the built-in example dataset
+    (server/data/work_types.json), kept for tests and documentation only.
+    """
+
+    _kind = "code"
+    _schema_description = "Work type code, as defined by the loaded dataset."
 
     CONCRETE_POUR = "concrete_pour"
     CONCRETE_FINISHING = "concrete_finishing"
@@ -33,8 +103,14 @@ class WorkCode(StrEnum):
     EXCAVATION = "excavation"
 
 
-class WorkCategory(StrEnum):
-    """Broad trade category a work type belongs to."""
+class WorkCategory(_DatasetIdentifier):
+    """Category a work type belongs to, as defined by the loaded dataset.
+
+    The constants below are the categories of the built-in example dataset.
+    """
+
+    _kind = "category"
+    _schema_description = "Work type category, as defined by the loaded dataset."
 
     CONCRETE = "concrete"
     FINISHING = "finishing"
@@ -111,9 +187,10 @@ class WeatherWindow(BaseModel):
 
 
 class WorkRequirements(BaseModel):
-    """The normative weather constraints for one construction work type.
+    """The weather constraints for one work type.
 
-    Mirrors one record of the BuildWindow dataset. All fields are required —
+    Mirrors one record of the loaded dataset (the built-in example or a
+    user-supplied file via BUILDWINDOW_DATASET). All fields are required —
     even base_curing_hours, which may be null for work types with no curing
     stage, but must still be present in the source data.
     """
@@ -121,8 +198,8 @@ class WorkRequirements(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     code: WorkCode = Field(description="Unique snake_case identifier of the work type.")
-    name: str = Field(description="Human-readable English name of the work type.")
-    category: WorkCategory = Field(description="Trade category of the work type.")
+    name: str = Field(description="Human-readable name of the work type.")
+    category: WorkCategory = Field(description="Category of the work type.")
     temp_min_c: float = Field(
         ge=-30,
         le=50,

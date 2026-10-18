@@ -28,6 +28,12 @@ class UnknownWorkCodeError(BuildWindowError):
     code = "unknown_work_code"
 
 
+class UnknownCategoryError(BuildWindowError):
+    """Raised when a category is not present in the loaded dataset."""
+
+    code = "unknown_category"
+
+
 class InvalidWeatherWindowError(BuildWindowError):
     """Raised when a weather window is internally inconsistent (e.g.
     temp_min > temp_max)."""

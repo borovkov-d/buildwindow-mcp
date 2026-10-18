@@ -1,42 +1,193 @@
 # BuildWindow
 
-MCP lab project: an agent plans construction work against a real weather
-forecast using two MCP servers.
+BuildWindow is a deterministic engine for planning work that depends on
+the weather, served as an MCP (Model Context Protocol) server. You give it
+the weather limits for your activities: minimum and maximum temperature,
+maximum wind, maximum humidity, and whether precipitation is allowed. You
+also give it a daily forecast. Four tools then tell an AI agent whether
+each activity may go ahead on each day, which limit is breached and by how
+much, and the earliest schedule that respects both the weather and the
+dependencies between activities. The same tools work for any activity with
+a weather window, for example concrete pours, roofing, exterior painting,
+drone flights or crop spraying.
 
-This is a course assignment for the KSE AI Agentic School (an MCP
-integration assignment): build a custom MCP server for a real domain
-problem, then connect it — alongside an existing third-party MCP server —
-to an agent that uses both together to do something a single tool
-couldn't.
+**The verdict is computed by code, not by the model.** Every verdict,
+schedule and curing estimate comes from pure functions in
+[`server/rules.py`](server/rules.py). The same limits and the same weather
+always give the same answer, down to the exact margin of each breach. The
+agent only passes data in and reports what comes back. It never decides
+for itself whether 4 m/s of wind is acceptable.
 
-## Overview
+**You bring the thresholds.** The limits live in a JSON dataset that you
+point the server at with `BUILDWINDOW_DATASET`. A construction dataset
+with 12 work types is built in, but it is an **illustrative example only**,
+not a normative source. Its numbers are plausible, not taken from any
+standard. Use your own limits from your standards, product data sheets,
+equipment manuals or regulations.
 
-BuildWindow is an MCP (Model Context Protocol) lab project built around a
-concrete scheduling problem: given a list of construction works with
-dependencies between them, and a weather forecast for a city, produce a
-schedule that respects both. The agent that does this planning holds two
-separate MCP connections at once. The first is the external, Go-based
-OpenWeather MCP server (github.com/mschneider82/mcp-openweather), which the
-agent calls once per run to get live current conditions and a 5-day
-forecast for the requested city — this is the only place in the whole
-project where a network call happens. The second is this repository's own
-BuildWindow MCP server: a local, fully deterministic server with no network
-calls at runtime, backed by a local JSON dataset of construction work
-types and their weather limits, that exposes four tools encoding the
-construction-domain rules (weather-suitability verdicts, curing-time
-estimation, and multi-work scheduling).
+```
+your limits (JSON)  ─┐
+                     ├─> BuildWindow MCP server ──> verdicts, violations, schedule
+daily forecast  ─────┘   (deterministic, offline)
+     ▲
+any weather source: a weather MCP server, an API, a file, the user
+```
 
-The two servers deliberately do not overlap in responsibility. OpenWeather
-MCP is the only source of anything that changes day to day — the weather
-itself. BuildWindow MCP owns everything that is a fixed rule instead: what
-temperature, wind, humidity and precipitation a given work type tolerates,
-how long concrete takes to cure at a given temperature, and how to place
-several dependent works into the earliest non-prohibited windows across a
-multi-day forecast. The BuildWindow server is built with the official
-Python MCP SDK (package `mcp`, v2.0.0+), using its `MCPServer` class — note
-that this class was named `FastMCP` in older SDK versions and was renamed
-to `MCPServer` as of SDK v2.0.0. The agent that drives both connections is
-built with the Claude Agent SDK (`claude-agent-sdk` on PyPI).
+## Quick start
+
+Requirements: **Python 3.12+** and **[uv](https://docs.astral.sh/uv/)**.
+
+```bash
+git clone https://github.com/borovkov-d/buildwindow-mcp.git
+cd buildwindow-mcp
+uv sync
+uv run python -m server.main
+```
+
+The server runs over stdio. On startup it prints one line to stderr:
+
+```
+BuildWindow MCP server ready: 4 tools, 12 work types loaded from <path>
+```
+
+To register it with an MCP client, for example Claude Code:
+
+```bash
+claude mcp add buildwindow -e BUILDWINDOW_DATASET=/absolute/path/to/your_limits.json -- uv --directory /absolute/path/to/buildwindow-mcp run python -m server.main
+```
+
+Leave out `-e BUILDWINDOW_DATASET=…` to start with the built-in example.
+Any other MCP client takes the same command and environment variable in
+its stdio server config.
+
+The server makes no network calls, reads only the one dataset file, and
+needs no API keys. It does not fetch weather itself.
+
+## Bring your own dataset
+
+Set `BUILDWINDOW_DATASET` to the path of a JSON file with this shape:
+
+```json
+{
+  "schema_version": "1.0",
+  "work_types": [
+    {
+      "code": "crop_spraying",
+      "name": "Crop spraying by drone",
+      "category": "agriculture",
+      "temp_min_c": 5,
+      "temp_max_c": 28,
+      "wind_max_ms": 4,
+      "humidity_max_pct": 95,
+      "precipitation_allowed": false,
+      "base_curing_hours": null,
+      "reference_note": "Product label section 4 and our spray-drift procedure."
+    }
+  ]
+}
+```
+
+| Field | Type and range | Meaning |
+|---|---|---|
+| `code` | snake_case string, unique | The `work_code` used in every tool call |
+| `name` | string | Human-readable name |
+| `category` | snake_case string | Group for `lookup_work_requirements(category=…)` |
+| `temp_min_c`, `temp_max_c` | number, −30…50, min < max | Allowed air temperature band, °C |
+| `wind_max_ms` | number, 0…40 | Highest allowed wind speed, m/s |
+| `humidity_max_pct` | integer, 0…100 | Highest allowed relative humidity, % |
+| `precipitation_allowed` | boolean | `false`: any precipitation is a hard violation |
+| `base_curing_hours` | positive integer or `null` | Nominal curing time at 20 °C, for `estimate_curing_time`. `null` means no curing stage. |
+| `reference_note` | string | Where the limits come from. It is shown to the user, so cite your source. |
+
+All fields are required (`base_curing_hours` may be `null`), and no extra
+fields are accepted.
+
+- **Unset or empty** `BUILDWINDOW_DATASET` → the built-in example
+  ([`server/data/work_types.json`](server/data/work_types.json)).
+- Prefer an **absolute path**. A relative one is resolved against the
+  server's working directory.
+- The file is read **once at startup**. Restart the server after changing
+  it.
+- The tools' input schemas list the loaded dataset's codes and categories
+  as an `enum`, so the agent sees your activities, not the example's.
+
+An invalid file stops the server with every problem listed:
+
+```
+[dataset_error] Dataset file …/limits.json is invalid. 2 problems found:
+  - work_types[0] (code 'windy_flight').wind_max_ms: Input should be less than or equal to 40 (got 55)
+  - work_types[1] (code 'Bad Code').code: String should match pattern '^[a-z][a-z0-9_]*$' -- use lowercase snake_case such as 'survey_mapping' (got 'Bad Code')
+```
+
+**A different domain, same engine:**
+[`examples/drone_operations.json`](examples/drone_operations.json) defines
+five drone missions: aerial photography, LiDAR survey, thermal inspection,
+crop spraying and parcel delivery. Each has its own wind, temperature,
+humidity and rain limits. Run the server on it with no code changes:
+
+```bash
+BUILDWINDOW_DATASET=examples/drone_operations.json uv run python -m server.main
+```
+
+These limits are illustrative too. Each record's `reference_note` says
+what to check them against.
+
+## Tools
+
+| Tool | Summary |
+|---|---|
+| `lookup_work_requirements` | Look up the limits of one work type, or of every work type in a category. |
+| `validate_work_window` | Check one work type against one day of weather. Returns `allowed`, `conditional` or `prohibited`, with every breached limit, its value and its margin. |
+| `plan_work_schedule` | Place several works, with dependencies, across a forecast of up to 14 days in one call. Works that can't be placed come back with a reason. |
+| `estimate_curing_time` | For work types with a curing stage: when the work is actually ready, given the daily temperatures (Nurse-Saul maturity method). |
+
+A breach within a small tolerance band of the limit is reported as a
+**warning**, and the verdict is `conditional`. The bands are 2 °C, 1 m/s
+and 5 % humidity. A breach beyond the band is a **violation**, and the
+verdict is `prohibited`. Errors come back as `[code] message`
+(`unknown_work_code`, `unknown_category`, `cyclic_dependency`,
+`no_curing_stage`, …). For unknown values, the message lists the valid
+ones, so the agent can correct itself. Full contracts, with real captured
+examples, are in [`docs/tool-contracts.md`](docs/tool-contracts.md).
+
+## Use as an agent skill
+
+[`skill/buildwindow/`](skill/buildwindow/) is a ready `SKILL.md` package.
+It tells an agent when to reach for these tools and how to use them. It
+covers the call order, how to read verdicts, how to react to each error,
+and the rule that verdicts are never the model's own judgement. Its
+[`references/dataset-format.md`](skill/buildwindow/references/dataset-format.md)
+documents the dataset format for the agent. To install it, zip the
+`skill/buildwindow` folder for a skill marketplace, or copy it into your
+agent's skills directory. The skill expects the MCP server above to be
+registered.
+
+## Reference agent: OpenWeather + Claude Agent SDK
+
+The repository also contains a complete example client in
+[`agent/`](agent/). It connects to two MCP servers: BuildWindow, and the
+external Go-based OpenWeather MCP server
+([mschneider82/mcp-openweather](https://github.com/mschneider82/mcp-openweather)).
+It then plans a list of works for a city. The agent is optional: the
+BuildWindow server does not depend on it, and you can feed the server
+forecasts from any other source.
+
+It works with your own limits too. The BuildWindow server subprocess
+inherits `BUILDWINDOW_DATASET` from the agent's environment, so pass work
+codes from your dataset as the agent's work list.
+
+### Prerequisites (agent only)
+
+- **Go 1.24+**, only to build the OpenWeather MCP server yourself.
+- **An OpenWeather API key**, only for a live run against real weather.
+  A free tier is available at
+  [openweathermap.org/api](https://openweathermap.org/api).
+- **A logged-in Claude Code / Claude Agent SDK session**: the agent drives
+  the model through `claude-agent-sdk`.
+
+Replay mode (`--forecast-from-file`, below) needs neither Go nor an API key.
+
+### How the agent uses the two servers
 
 The *schedule-critical* OpenWeather call is deliberately **not** made by
 the LLM. The upstream tool's actual output (confirmed by reading its
@@ -53,11 +204,10 @@ and the model genuinely *is* allowed to call the weather tool itself
 (`allowed_tools` lists it explicitly) — but only for one current-
 conditions sentence in its final report, per the system prompt; the daily
 forecast that drives `plan_work_schedule` always comes from the
-deterministic pre-session fetch, never from the model's own call. Both
-servers are genuinely used in the agent's own flow, not just visible.
+deterministic pre-session fetch, never from the model's own call.
 
 ```
-engineer input (city + work list)
+user input (city + work list)
   -> agent/main.py calls OpenWeather MCP directly (not via the LLM) for
      the schedule-critical daily forecast
   -> agent/normalize.py parses the plain-text response into daily figures
@@ -71,32 +221,7 @@ engineer input (city + work list)
   -> schedule + explanation
 ```
 
-## Prerequisites
-
-- **Python 3.12+** — this repo was built and tested against 3.12.3.
-- **[uv](https://docs.astral.sh/uv/)** — used as the dependency manager
-  for this project.
-- **Go 1.24+** — only needed if you want to build the OpenWeather MCP
-  server yourself (installed here via `winget install --id GoLang.Go`,
-  currently Go 1.26.7). Not required to use the BuildWindow server or to
-  run its tests.
-- **An OpenWeather API key** — only needed for a live agent run against
-  real weather. Free tier available at
-  [openweathermap.org/api](https://openweathermap.org/api).
-
-## Installation
-
-From the repo root:
-
-```powershell
-uv sync
-```
-
-This creates a `.venv` and installs both the runtime dependencies (`mcp`,
-`pydantic`, `claude-agent-sdk`, `python-dotenv`) and the dev dependencies
-(`pytest`, `ruff`, `black`).
-
-## Configuration
+### Configuration
 
 Copy the example environment file and fill in your key:
 
@@ -128,7 +253,7 @@ were verified to work live.
 
 **Building the OpenWeather MCP server** (only needed if you want a live
 run against real weather). These are the exact commands used to build and
-verify it in this repo's own development environment:
+verify it during development:
 
 ```powershell
 winget install --id GoLang.Go -e --accept-source-agreements --accept-package-agreements
@@ -146,7 +271,7 @@ install` actually places built binaries. Either add that directory to
 
 **Why `@main` and not `@latest`:** `go install ...@latest` resolves to
 tag `v1.0.0`, which is one real commit ("Fix #5") behind the repository's
-`main` branch. Both were built and compared live this project: `v1.0.0`
+`main` branch. Both were built and compared live: `v1.0.0`
 reads the optional `units`/`lang` arguments with no fallback when
 they're omitted entirely, so an omitted `lang` fails with `language
 unavailable` even though the tool's own schema declares a default;
@@ -163,28 +288,14 @@ Do **not** use the `-o mcp-weather` flag shown in some of the upstream
 README's own examples — that produces a binary name inconsistent with its
 own config example. Build with the default name, `mcp-openweather`.
 
-## Running the MCP server
-
-```powershell
-uv run python -m server.main
-```
-
-This runs the BuildWindow MCP server over stdio, independent of the agent
-process — it can be started and exercised entirely on its own. On success
-it prints exactly this line to stderr:
-
-```
-BuildWindow MCP server ready: 4 tools, 12 work types loaded
-```
-
-## Running the agent
+### Running the agent
 
 ```powershell
 uv run python -m agent.main
 ```
 
-With no arguments, this uses a built-in demo city ("Kyiv") and a built-in
-demo work list: `excavation`, then `concrete_pour` (depending on it), then
+With no arguments, this uses a default city ("Kyiv") and a default work
+list from the built-in example dataset: `excavation`, then `concrete_pour` (depending on it), then
 `concrete_finishing` (depending on that).
 
 Both can be overridden:
@@ -195,7 +306,12 @@ uv run python -m agent.main "CityName" '[{"work_code": "excavation", "duration_d
 ```
 
 The optional second argument is a JSON array of works in the same shape as
-the demo list.
+the default list. With your own dataset, use its codes:
+
+```powershell
+$env:BUILDWINDOW_DATASET = "examples/drone_operations.json"
+uv run python -m agent.main "Longyearbyen" '[{"work_code": "lidar_survey", "duration_days": 1, "depends_on": []}, {"work_code": "crop_spraying", "duration_days": 2, "depends_on": []}]' --forecast-from-file fixtures/weather_longyearbyen.txt
+```
 
 **Replay mode** — `--forecast-from-file <path>` is fully offline: it
 replaces *both* the daily forecast and the current-conditions note with
@@ -213,11 +329,10 @@ uv run python -m agent.main "Longyearbyen" '[{"work_code": "excavation", "durati
 ```
 
 `fixtures/weather_kyiv.txt` and `fixtures/weather_longyearbyen.txt` are
-real responses captured live this project (trimmed to 3 full real
+real responses captured live (trimmed to 3 full real
 calendar days each, no key inside either) — not synthetic, not
-fabricated examples. Useful if the real weather in a demo city has
-changed by the time you're running this, or if there's no network at
-all at demo time.
+fabricated examples. Useful for a reproducible run that doesn't
+depend on today's weather, or when there's no network at all.
 
 A full live run against real weather requires a genuinely valid
 `OWM_API_KEY` (see Configuration above) — confirmed working in this
@@ -246,121 +361,122 @@ forecast and the current-conditions note come from the recorded file,
 and `openweather` isn't connected at all in this mode (confirmed live:
 `get_mcp_status()` shows only `buildwindow`). OpenWeather's free tier is
 documented at 60 calls/minute and 1,000,000 calls/month — comfortably
-enough for any number of manual demo runs; this project doesn't
+enough for any number of manual runs; this project doesn't
 stress-test that published figure itself.
 
 ## Project structure
 
 ```
 .
-├── README.md, DECISIONS.md, pyproject.toml, uv.lock, .env.example, .gitignore
+├── README.md, DECISIONS.md, LICENSE, pyproject.toml, uv.lock, .env.example, .gitignore
+├── server/                 # the engine: MCP server, no network, no I/O beyond the dataset
+│   ├── main.py             # entry point, registers the 4 tools
+│   ├── schemas.py          # Pydantic input/output models
+│   ├── rules.py            # deterministic verdict/curing/planner logic
+│   ├── dataset.py          # resolves BUILDWINDOW_DATASET, loads and validates the dataset
+│   ├── errors.py           # domain exceptions and error codes
+│   └── data/work_types.json  # built-in construction example dataset
+├── examples/
+│   └── drone_operations.json # example dataset from another domain
+├── skill/buildwindow/      # SKILL.md package for agents
+│   ├── SKILL.md
+│   └── references/dataset-format.md
+├── agent/                  # optional reference agent (OpenWeather + Claude Agent SDK)
+│   ├── main.py
+│   ├── normalize.py        # deterministic OpenWeather text -> daily figures
+│   └── mcp_config.json     # config for both MCP servers
+├── fixtures/               # real captured OpenWeather responses, for replay mode
+├── scripts/
+│   └── list_tools.py       # lists both MCP connections' tools, no weather call
 ├── docs/
 │   ├── tool-contracts.md
 │   ├── design-rationale.md
-│   └── demo-checklist.md
-├── scripts/
-│   └── list_tools.py      # proves both MCP connections discover fine offline
-├── server/
-│   ├── main.py            # MCP server entry point, registers the 4 tools
-│   ├── schemas.py         # Pydantic input/output models
-│   ├── rules.py           # deterministic verdict/curing/planner logic
-│   ├── dataset.py         # loads and validates work_types.json
-│   ├── errors.py          # domain exceptions and error codes
-│   └── data/work_types.json
-├── agent/
-│   ├── main.py             # agent entry point (Claude Agent SDK)
-│   ├── normalize.py        # deterministic OpenWeather text -> daily figures
-│   └── mcp_config.json     # config for both MCP servers
-├── fixtures/
-│   ├── weather_kyiv.txt      # real captured response, for --forecast-from-file
-│   └── weather_longyearbyen.txt  # real captured response, for --forecast-from-file
+│   └── demo-checklist.md   # step-by-step end-to-end verification walkthrough
 └── tests/
     ├── conftest.py
-    ├── test_dataset.py, test_lookup.py, test_validate.py
+    ├── test_dataset.py, test_custom_dataset.py, test_lookup.py, test_validate.py
     ├── test_curing.py, test_planner.py, test_errors.py
     └── test_normalization.py
 ```
 
-## Tool overview
-
-| Tool | Summary |
-|---|---|
-| `lookup_work_requirements` | Look up a work type's, or an entire category's, weather limits. |
-| `validate_work_window` | Check one work type against one day of weather and get back an itemized verdict. |
-| `estimate_curing_time` | Estimate when a curing work type will actually be ready, given a sequence of daily temperatures. |
-| `plan_work_schedule` | Place several dependent works across a multi-day forecast in one call. |
-
-The full contracts — exact JSON Schemas and real captured examples for
-every tool, including the external `weather` tool as used by this project
-— live in [`docs/tool-contracts.md`](docs/tool-contracts.md).
-
 ## Testing
 
-```powershell
+```bash
 uv run pytest -v
 uv run ruff check .
 uv run black --check .
 ```
 
-All three currently pass cleanly in this repo: 51 tests pass (covering
-the 38 spec-required cases, a few supplementary assertions, and 8 tests
-for the `agent/normalize.py` weather-parsing module, including the two
-real-fixture and two current-conditions cases), and both `ruff` and
-`black` report no issues.
+All 62 tests pass. They cover the rules, the four tools, every error code,
+custom datasets (loading, readable validation errors, the
+`BUILDWINDOW_DATASET` fallback, and the schema enum), and the reference
+agent's weather parsing. `ruff` and `black` report no issues.
 
 ## Limitations
 
-The full reasoning behind each of these lives in
-[`docs/design-rationale.md`](docs/design-rationale.md) — this list is
-intentionally brief:
+The engine:
 
-- Dataset thresholds are illustrative, not derived from real ДБН/ДСТУ
-  standards.
-- The planner has no resource/crew constraints — works can overlap dates.
-- The real planning horizon is capped at 5 days by the OpenWeather
-  provider.
-- Curing time uses a simplified Nurse-Saul maturity model.
-- One work occupies one continuous block — there is no split scheduling.
-- The OpenWeather MCP server's `weather` tool (confirmed by reading its
-  source, not assumed) exposes only temperature per 3-hour forecast
-  entry — wind speed and humidity are only available in a single
-  current-conditions snapshot, applied here as a constant across every
-  forecast day, and precipitation isn't exposed at all, so
-  `precipitation_mm` is always `0.0` through this integration. **This
-  means BuildWindow's precipitation rule (a work with
-  `precipitation_allowed=false` gets a hard violation if
-  `precipitation_mm > 0`) can never actually trigger from a live run
-  through this integration** — it's real, correct code, covered by unit
-  tests against constructed data (`tests/test_validate.py`, spec cases
-  #16-17), but not something a live demo can show, since there is no live
-  path to non-zero precipitation. This project does not simulate or
-  inject fake rain data to manufacture that demo. The same upstream tool
-  also can't distinguish a bad API key from an unrecognized city from an
-  unreachable provider — all three come back as the same
-  syntactically-successful-but-empty response, which is why
-  `agent/main.py` can only report "no forecast available," not a specific
-  cause, for any of those three cases. See `docs/tool-contracts.md` for
-  the full, source-verified detail.
-- A genuinely valid `OWM_API_KEY` is now confirmed working: a full live
-  run against real Kyiv weather produces a real schedule end-to-end, and
-  a real cold-weather city (Longyearbyen) was found where the live
-  forecast actually forces a work `unschedulable` and `validate_work_window` fires
-  with real numbers — see `docs/demo-checklist.md` step 4. Everything
-  described in this README has now been verified against a real,
-  working key, not just an absent one; see `DECISIONS.md` for what that
-  live run against real data did and didn't change in the code.
+- **Thresholds are yours.** The engine applies whatever limits the
+  dataset contains and does not check them against any standard. The
+  built-in construction dataset and the drone example are illustrative.
+- **Five fixed weather dimensions:** temperature band, wind, humidity and
+  precipitation, one value each per day. There is no hourly resolution,
+  and no gusts, visibility, UV or other dimensions.
+- **Tolerance bands are global**, not set per work type: 2 °C, 1 m/s,
+  5 % humidity, none for precipitation.
+- **The planner is greedy.** Each work goes into the earliest feasible
+  window, in dependency order. There are no resource or crew limits
+  (works may overlap), no optimisation, and one work occupies one
+  continuous block. The forecast is limited to 14 days per call.
+- **Curing uses a simplified Nurse-Saul maturity model**, meant for
+  cementitious materials. It applies only to work types with
+  `base_curing_hours` set.
+
+The reference agent's weather source. These limitations belong to the
+specific external OpenWeather MCP tool, not to the engine. If you connect
+another forecast source, you won't have them:
+
+- That tool returns only temperature per 3-hour forecast entry. Wind and
+  humidity come from a single current-conditions snapshot, which the agent
+  applies as a constant across every forecast day. Precipitation is not
+  exposed at all, so `precipitation_mm` is always `0.0` through that
+  integration, and a precipitation rule can never trigger in a live run.
+  The engine itself evaluates precipitation fully, as the unit tests show
+  (`tests/test_validate.py`).
+- Its forecast covers about 5 days, so live runs are capped there. The
+  engine accepts up to 14.
+- It cannot distinguish a bad API key, an unrecognised city and an
+  unreachable provider. All three return the same empty response, so the
+  agent can only report "no forecast available". It never invents a
+  schedule.
+
+See [`docs/design-rationale.md`](docs/design-rationale.md) and
+[`docs/tool-contracts.md`](docs/tool-contracts.md) for the full,
+source-verified detail.
 
 ## Documentation
 
-- [`docs/tool-contracts.md`](docs/tool-contracts.md) — the exact JSON
-  Schema contracts for all four BuildWindow tools, and for the external
-  OpenWeather `weather` tool as used by this project, each with a real
-  captured example.
-- [`docs/design-rationale.md`](docs/design-rationale.md) — why each tool
-  exists, how the tool set maps onto the workflow, the boundaries between
-  components, the trade-offs made, and the project's limitations in full.
-- [`docs/demo-checklist.md`](docs/demo-checklist.md) — a step-by-step
-  checklist for running a live demo of the project.
-- [`DECISIONS.md`](DECISIONS.md) — a dated log of implementation
-  decisions, each with its rationale and the alternative that was
-  rejected.
+- [`docs/tool-contracts.md`](docs/tool-contracts.md): the exact contracts
+  for all four tools, and for the external OpenWeather `weather` tool as
+  the reference agent uses it, each with a real captured example.
+- [`docs/design-rationale.md`](docs/design-rationale.md): why each tool
+  exists, the component boundaries, and the trade-offs.
+- [`docs/demo-checklist.md`](docs/demo-checklist.md): a step-by-step
+  end-to-end walkthrough of the server and the reference agent, including
+  failure scenarios.
+- [`DECISIONS.md`](DECISIONS.md): a dated log of implementation decisions,
+  each with its rationale and the rejected alternative.
+
+## Origin
+
+BuildWindow started as a course project for the KSE AI Agentic School, an
+MCP integration assignment. The task was to build a custom MCP server for
+a real domain problem and connect it, alongside an existing third-party
+MCP server, to an agent. The first version was a construction scheduler
+with its work types hard-coded. It was later generalised into the
+dataset-agnostic engine described above. `DECISIONS.md` records each step
+of that history.
+
+## License
+
+[MIT](LICENSE).
