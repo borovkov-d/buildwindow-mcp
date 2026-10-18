@@ -827,3 +827,103 @@ Format: `- <question> — <decision> — <why> — <alternative rejected>`.
   (`unknown_category` replaces the empty-category result).
 - **The commit carries no AI attribution trailer**, consistent with the
   whole history (phase 9 audit) — the owner's explicit choice this phase.
+
+## Phase 11 — verifying the skill as installed, before listing
+
+- **Root cause of the phase-10 "OAuth session expired" failure: the
+  standalone Claude Code CLI on this machine was never logged in**
+  (`claude auth status` → `loggedIn: false`; the credentials file held no
+  refresh token). Logging into the desktop app does not log in the CLI,
+  and the reference agent drives the model through the CLI that
+  `claude-agent-sdk` bundles. The owner ran `claude auth login`; after
+  that, both the agent and fresh `claude -p` sessions worked. Runs from
+  this tool session also strip the host session's `CLAUDE_CODE_*` /
+  `ANTHROPIC_*` environment variables, so they behave like a plain
+  terminal.
+- **Agent run on the drone dataset (replay, Longyearbyen) — works.** The
+  model called only drone mission codes (`lidar_survey`,
+  `crop_spraying`, …), never a construction code, and the answer speaks
+  of missions. Saved verbatim as
+  `docs/sample-runs/agent-drones-longyearbyen.txt` for the listing.
+- **The reference agent now refuses to fall back to its built-in demo
+  work list when `BUILDWINDOW_DATASET` is set** and no works were
+  passed: those construction codes cannot exist in a user's dataset, so
+  it exits with a message (exit code 2) before starting an LLM session,
+  instead of letting every tool call fail with `unknown_work_code`. This
+  was the last construction assumption left in the agent; prompts and
+  tool descriptions had none.
+- **Install path tested literally, as a buyer would run it** (in a
+  scratch directory, then cleaned out of `~/.claude.json`): `git clone`,
+  `uv sync` and the skill's `claude mcp add … -e BUILDWINDOW_DATASET=… --
+  uv --directory … run python -m server.main` all work verbatim, and
+  `claude mcp get` reports `Connected`. **But GitHub still has phase 9
+  (`c9c6acf`)**, whose server ignores `BUILDWINDOW_DATASET` entirely:
+  `Connected`, yet it loads the 12 built-in construction types and the
+  buyer's file is silently unused. Fixes: the skill now clones a pinned
+  tag (`git clone --branch v0.2.0 …`), and a new "Check the dataset was
+  loaded" section tells the user how to see which file was loaded (the
+  startup line names the file; an old server prints none). The tag and
+  the push are left to the owner.
+- **Skill installed exactly as Agensi packages it** — `buildwindow.zip`
+  (one top-level `buildwindow/` folder, `SKILL.md` at its root, plus
+  `references/dataset-format.md`) unpacked into `~/.claude/skills/` —
+  then tested in fresh `claude -p` sessions whose prompts never name the
+  skill. It was picked up from its `description` every time (8 of 8
+  sessions, Ukrainian and English prompts). Findings, each fixed and
+  re-run on a clean session:
+  - *No server installed:* the agent explained that it could not give a
+    verdict, showed the install steps verbatim, asked for a forecast and
+    invented nothing. No change needed.
+  - *Wrong dataset provenance:* with the drone dataset loaded, the agent
+    told the user the limits were "BuildWindow's built-in illustrative
+    set". It had inferred that from the drone file's `reference_note`
+    ("Illustrative example…"), because nothing told it which file was
+    loaded. Fix: `lookup_work_requirements` now returns
+    `dataset_is_builtin_example` and `dataset_file`, an additive output
+    change. Server `instructions` were rejected because not every client
+    surfaces them. The skill tells the agent to use these fields and never
+    the note's wording. Re-run: "your limits from `your_limits.json`, not
+    the built-in example".
+  - *The model explained a skipped day by itself:* "Tuesday doesn't work,
+    wind 9 m/s". That was wrong, since aerial photography's limit is
+    10 m/s, and it is exactly the self-judgment the skill forbids; the
+    skill had not covered explaining delays or alternatives. Fix: the
+    core rule now covers explanations and alternatives (check the day
+    with `validate_work_window` first), and procedure step 5 covers jobs
+    placed later than the first possible day. Re-run: the agent validated
+    the rainy Wednesday and the proposed alternative days with the tool.
+  - *Bringing your own dataset:* asked how to use limits from a pesticide
+    label, the agent tried to read `references/dataset-format.md`. In a
+    non-interactive session that read needs permission, so it could not
+    build the JSON and dropped a required field. Agensi's delivery of
+    reference files is also undocumented. Fix: a compact "Dataset format"
+    section (example record plus field rules) is now inline in
+    SKILL.md, and `references/` keeps the detail. Re-run: the agent
+    produced a complete file, which the server loaded on the first try,
+    set humidity to 100 with an explanation, and asked for anything the
+    label did not give.
+  - *Meaning of `conditional`:* the skill now says the limit **is**
+    breached, only within the tolerance band. It also says this means
+    "not met" when the limits are hard ones (a product label, a
+    regulation). The re-run applied that to the label limits unprompted.
+- **Buyer's-eye review of SKILL.md:**
+  - the need for a locally installed server (Python 3.12+, uv, no keys)
+    is now in the first paragraph, not only in Installation at the end;
+  - the "built-in dataset is only an example" and "forecast sources are
+    incomplete" warnings open the skill, and the latter names the
+    concrete case: the reference agent's OpenWeather tool gives no
+    precipitation and only current wind and humidity;
+  - the description's trigger phrases were rewritten as questions people
+    actually ask ("can we paint the facade tomorrow?", "can I fly the
+    drone / spray the field on Friday?"), replacing "pour / paint / roof"
+    lists;
+  - no reference to a course, an assignment, a defense or grading remains
+    in the skill package.
+- **Startup line now says "1 work type" for one-record datasets** — a
+  cosmetic fix, noticed while validating the agent-generated pesticide
+  dataset.
+- **`buildwindow.zip` is built at the repository root and gitignored** —
+  it is an upload artifact derived from `skill/buildwindow/`, not a source
+  file.
+- **Version stays 0.2.0** — it was never released, and the skill pins the
+  tag `v0.2.0`, created on this phase's commit.

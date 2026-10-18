@@ -419,6 +419,19 @@ def main() -> None:
 
     load_dotenv()
     args = _parse_args()
+    if args.works_json is None and os.environ.get("BUILDWINDOW_DATASET", "").strip():
+        # DEMO_WORKS uses codes from the built-in example dataset, which a
+        # user-supplied dataset almost certainly doesn't define -- stop
+        # before starting an LLM session rather than let every tool call
+        # fail with unknown_work_code.
+        print(
+            "BUILDWINDOW_DATASET is set, so the built-in demo work list "
+            "doesn't apply. Pass a works list using codes from your dataset, "
+            'e.g. \'[{"work_code": "<code>", "duration_days": 1, '
+            '"depends_on": []}]\'.',
+            file=sys.stderr,
+        )
+        sys.exit(2)
     works = json.loads(args.works_json) if args.works_json else DEMO_WORKS
     asyncio.run(run(args.city, works, args.forecast_from_file))
 

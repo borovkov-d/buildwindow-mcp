@@ -237,6 +237,28 @@ def test_unset_or_empty_env_var_falls_back_to_builtin_dataset(
     assert WorkCode.CONCRETE_POUR in dataset.codes
 
 
+def test_lookup_reports_which_dataset_the_limits_come_from(
+    monkeypatch: pytest.MonkeyPatch, fresh_dataset_cache: None
+) -> None:
+    """The calling model must be able to tell the built-in illustrative
+    example from a user's own file without guessing from reference_note
+    wording (the drone example's notes also say "illustrative")."""
+    monkeypatch.delenv(DATASET_ENV_VAR, raising=False)
+    builtin = main_module.lookup_work_requirements(
+        LookupWorkRequirementsInput(work_code=WorkCode.CONCRETE_POUR)
+    )
+    assert builtin.dataset_is_builtin_example is True
+    assert builtin.dataset_file == "work_types.json"
+
+    monkeypatch.setenv(DATASET_ENV_VAR, str(DRONE_DATASET_PATH))
+    get_dataset.cache_clear()
+    custom = main_module.lookup_work_requirements(
+        LookupWorkRequirementsInput(work_code="crop_spraying")
+    )
+    assert custom.dataset_is_builtin_example is False
+    assert custom.dataset_file == "drone_operations.json"
+
+
 def test_tool_schema_lists_loaded_codes_and_categories() -> None:
     """The open WorkCode/WorkCategory types still give the calling model a
     concrete list of options: the JSON Schema carries an enum taken from

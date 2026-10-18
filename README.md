@@ -147,7 +147,9 @@ and 5 % humidity. A breach beyond the band is a **violation**, and the
 verdict is `prohibited`. Errors come back as `[code] message`
 (`unknown_work_code`, `unknown_category`, `cyclic_dependency`,
 `no_curing_stage`, …). For unknown values, the message lists the valid
-ones, so the agent can correct itself. Full contracts, with real captured
+ones, so the agent can correct itself. `lookup_work_requirements` also
+reports whether the limits come from the built-in example or from your own
+file (`dataset_is_builtin_example`, `dataset_file`). Full contracts, with real captured
 examples, are in [`docs/tool-contracts.md`](docs/tool-contracts.md).
 
 ## Use as an agent skill
@@ -391,7 +393,8 @@ stress-test that published figure itself.
 ├── docs/
 │   ├── tool-contracts.md
 │   ├── design-rationale.md
-│   └── demo-checklist.md   # step-by-step end-to-end verification walkthrough
+│   ├── demo-checklist.md   # step-by-step end-to-end verification walkthrough
+│   └── sample-runs/        # real captured agent and skill-session transcripts
 └── tests/
     ├── conftest.py
     ├── test_dataset.py, test_custom_dataset.py, test_lookup.py, test_validate.py
@@ -407,7 +410,7 @@ uv run ruff check .
 uv run black --check .
 ```
 
-All 62 tests pass. They cover the rules, the four tools, every error code,
+All 63 tests pass. They cover the rules, the four tools, every error code,
 custom datasets (loading, readable validation errors, the
 `BUILDWINDOW_DATASET` fallback, and the schema enum), and the reference
 agent's weather parsing. `ruff` and `black` report no issues.
@@ -464,6 +467,10 @@ source-verified detail.
 - [`docs/demo-checklist.md`](docs/demo-checklist.md): a step-by-step
   end-to-end walkthrough of the server and the reference agent, including
   failure scenarios.
+- [`docs/sample-runs/`](docs/sample-runs/): real captured output: the
+  reference agent planning drone missions from
+  `examples/drone_operations.json`, and a fresh Claude Code session in which
+  the installed skill was picked up from its description alone.
 - [`DECISIONS.md`](DECISIONS.md): a dated log of implementation decisions,
   each with its rationale and the rejected alternative.
 

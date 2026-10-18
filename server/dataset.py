@@ -150,6 +150,11 @@ class Dataset:
         )
 
     @property
+    def is_builtin_example(self) -> bool:
+        """True when this is the built-in example dataset, not a user file."""
+        return self.source.resolve() == DEFAULT_DATASET_PATH.resolve()
+
+    @property
     def codes(self) -> tuple[str, ...]:
         """Every work code, in dataset order."""
         return tuple(record.code for record in self.work_types)

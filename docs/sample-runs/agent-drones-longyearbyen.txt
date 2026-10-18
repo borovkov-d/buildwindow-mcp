@@ -1,0 +1,58 @@
+# Reference agent, user-supplied drone dataset, replay mode (captured 2026-10-18)
+#
+# BUILDWINDOW_DATASET=examples/drone_operations.json \
+#   uv run python -m agent.main "Longyearbyen" \
+#   '[{"work_code":"lidar_survey","duration_days":1,"depends_on":[]},
+#     {"work_code":"aerial_photography","duration_days":2,"depends_on":["lidar_survey"]},
+#     {"work_code":"crop_spraying","duration_days":2,"depends_on":[]},
+#     {"work_code":"thermal_inspection","duration_days":1,"depends_on":[]},
+#     {"work_code":"parcel_delivery","duration_days":3,"depends_on":[]}]' \
+#   --forecast-from-file fixtures/weather_longyearbyen.txt
+#
+# Verbatim stdout+stderr below. The model's answer text is not deterministic
+# between runs; the tool calls' results are.
+
+--- weather: fetched and normalized 3 day(s) of forecast for 'Longyearbyen' (source: replay file 'fixtures/weather_longyearbyen.txt') ---
+[tool call] mcp__buildwindow__plan_work_schedule({"request": {"works": [{"work_code": "lidar_survey", "duration_days": 1, "depends_on": []}, {"work_code": "aerial_photography", "duration_days": 2, "depends_on": ["lidar_survey"]}, {"work_code": "crop_spraying", "duration_days": 2, "depends_on": []}, {"work_code": "thermal_inspection", "duration_days": 1, "depends_on": []}, {"work_code": "parcel_delivery", "duration_days": 3, "depends_on": []}], "forecast": [{"date": "2026-08-23", "temp_min_c": 3.77, "temp_max_c": 5.32, "wind_ms": 3.09, "humidity_pct": 87, "precipitation_mm": 0}, {"date": "2026-08-24", "temp_min_c": 1.72, "temp_max_c": 4.24, "wind_ms": 3.09, "humidity_pct": 87, "precipitation_mm": 0}, {"date": "2026-08-25", "temp_min_c": 1.23, "temp_max_c": 3.01, "wind_ms": 3.09, "humidity_pct": 87, "precipitation_mm": 0}]}})
+[tool call] mcp__buildwindow__lookup_work_requirements({"request": {"work_code": "lidar_survey"}})
+[tool call] mcp__buildwindow__lookup_work_requirements({"request": {"work_code": "aerial_photography"}})
+[tool call] mcp__buildwindow__lookup_work_requirements({"request": {"work_code": "crop_spraying"}})
+[tool call] mcp__buildwindow__lookup_work_requirements({"request": {"work_code": "thermal_inspection"}})
+[tool call] mcp__buildwindow__lookup_work_requirements({"request": {"work_code": "parcel_delivery"}})
+[tool call] mcp__buildwindow__validate_work_window({"request": {"work_code": "crop_spraying", "window": {"date": "2026-08-23", "temp_min_c": 3.77, "temp_max_c": 5.32, "wind_ms": 3.09, "humidity_pct": 87, "precipitation_mm": 0}}})
+[tool call] mcp__buildwindow__validate_work_window({"request": {"work_code": "crop_spraying", "window": {"date": "2026-08-24", "temp_min_c": 1.72, "temp_max_c": 4.24, "wind_ms": 3.09, "humidity_pct": 87, "precipitation_mm": 0}}})
+[tool call] mcp__buildwindow__validate_work_window({"request": {"work_code": "crop_spraying", "window": {"date": "2026-08-25", "temp_min_c": 1.23, "temp_max_c": 3.01, "wind_ms": 3.09, "humidity_pct": 87, "precipitation_mm": 0}}})
+[tool call] mcp__buildwindow__validate_work_window({"request": {"work_code": "lidar_survey", "window": {"date": "2026-08-23", "temp_min_c": 3.77, "temp_max_c": 5.32, "wind_ms": 3.09, "humidity_pct": 87, "precipitation_mm": 0}}})
+[tool call] mcp__buildwindow__validate_work_window({"request": {"work_code": "thermal_inspection", "window": {"date": "2026-08-23", "temp_min_c": 3.77, "temp_max_c": 5.32, "wind_ms": 3.09, "humidity_pct": 87, "precipitation_mm": 0}}})
+--- MCP server discovery ---
+  buildwindow: connected (tools: lookup_work_requirements, validate_work_window, estimate_curing_time, plan_work_schedule)
+-----------------------------
+## Current conditions (for context only)
+Longyearbyen is currently at 4.91 °C with overcast clouds — this is a live snapshot and was not used for scheduling; the schedule below is based solely on the supplied 3‑day forecast (2026‑08‑23 to 2026‑08‑25).
+
+## Schedule (from `plan_work_schedule`)
+
+| Work | Start | End | Verdict |
+|---|---|---|---|
+| lidar_survey | 2026-08-23 | 2026-08-23 | conditional |
+| thermal_inspection | 2026-08-23 | 2026-08-23 | conditional |
+| aerial_photography | 2026-08-24 | 2026-08-25 | allowed |
+| parcel_delivery | 2026-08-23 | 2026-08-25 | allowed |
+| **crop_spraying** | — | — | **unschedulable** |
+
+None of these five work types carry a curing stage (`lookup_work_requirements` returned `base_curing_hours: null` for all of `lidar_survey`, `aerial_photography`, `crop_spraying`, `thermal_inspection`, `parcel_delivery`), so no `estimate_curing_time` call applies — each job is "ready" as soon as it finishes on its end date above.
+
+## Items flagged "conditional" (scheduled as requested, but with risk)
+- **lidar_survey (2026‑08‑23):** `validate_work_window` returned verdict `conditional` — warning on `humidity`: forecast humidity 87% exceeds the 85% maximum allowed for lidar_survey (margin +2%).
+- **thermal_inspection (2026‑08‑23):** same warning — humidity 87% exceeds the 85% maximum allowed for thermal_inspection (margin +2%).
+
+These are warnings (within the near-boundary range), not hard breaches, so the scheduler still placed both on day 1 — but humidity is running 2 points over the limit that day.
+
+## Unschedulable: crop_spraying
+`plan_work_schedule` returned reason `no_suitable_window`: "No 2-day window between 2026-08-23 and 2026-08-25 avoids a prohibited day." I validated each day individually to get the specific breach:
+
+- **2026-08-23:** `conditional` — warning only, `temperature_min`: forecast min 3.77 °C is below the 5.0 °C minimum for crop_spraying (margin ‑1.23 °C). Not itself disqualifying.
+- **2026-08-24:** `prohibited` — hard violation, `temperature_min`: forecast min 1.72 °C is below the 5.0 °C minimum for crop_spraying (margin ‑3.28 °C).
+- **2026-08-25:** `prohibited` — hard violation, `temperature_min`: forecast min 1.23 °C is below the 5.0 °C minimum for crop_spraying (margin ‑3.77 °C).
+
+Since crop_spraying needs 2 consecutive days and every possible 2-day span in the 3-day forecast includes at least one of the two prohibited days (08-24 or 08-25), no valid window exists in this forecast — it cannot be scheduled.

@@ -67,7 +67,10 @@ def lookup_work_requirements(
     work_code or a category, never both. The valid codes and categories are
     listed in this tool's input schema; an unknown one fails with
     unknown_work_code or unknown_category, and the error lists the valid
-    values.
+    values. The result also says whether the limits come from the built-in
+    illustrative example dataset or from the user's own dataset file
+    (dataset_is_builtin_example, dataset_file) -- use that, not the
+    reference_note wording, when telling the user where limits come from.
     """
     dataset = get_dataset()
     if request.work_code is not None:
@@ -75,7 +78,10 @@ def lookup_work_requirements(
     else:
         matches = dataset.get_by_category(request.category)
     return LookupWorkRequirementsOutput(
-        requirements=matches, matched_count=len(matches)
+        requirements=matches,
+        matched_count=len(matches),
+        dataset_is_builtin_example=dataset.is_builtin_example,
+        dataset_file=dataset.source.name,
     )
 
 
@@ -146,8 +152,8 @@ def main() -> None:
         sys.exit(1)
 
     print(
-        f"BuildWindow MCP server ready: 4 tools, {dataset.count} work types "
-        f"loaded from {dataset.source}",
+        f"BuildWindow MCP server ready: 4 tools, {dataset.count} work "
+        f"type{'s' if dataset.count != 1 else ''} loaded from {dataset.source}",
         file=sys.stderr,
     )
     mcp.run()

@@ -8,3 +8,6 @@ __pycache__/
 dist/
 build/
 session-export.txt
+
+# Agensi upload package, rebuilt from skill/buildwindow/ -- not committed
+buildwindow.zip

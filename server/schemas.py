@@ -283,6 +283,17 @@ class LookupWorkRequirementsOutput(BaseModel):
         description="Matching work type requirements. Empty if none matched."
     )
     matched_count: int = Field(description="Number of items in requirements.")
+    dataset_is_builtin_example: bool = Field(
+        description=(
+            "True when these limits come from the server's built-in example "
+            "dataset, which is illustrative and not a normative source; false "
+            "when they come from a dataset file the user supplied via "
+            "BUILDWINDOW_DATASET."
+        )
+    )
+    dataset_file: str = Field(
+        description="File name of the dataset these limits were loaded from."
+    )
 
 
 class ConstraintViolation(BaseModel):
