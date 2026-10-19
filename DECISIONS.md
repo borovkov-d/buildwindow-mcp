@@ -984,3 +984,99 @@ Format: `- <question> — <decision> — <why> — <alternative rejected>`.
   `git clone --branch` and its "re-clone" hint now point at `v0.2.1`.
   The new tag was pushed together with `master`, since a buyer
   following the skill clones that tag.
+
+## Phase 13 — the agent fetches the forecast itself; one-command install via uvx
+
+Neither change touches `server/rules.py` or adds a network call to the
+server. The server stays deterministic and offline at runtime.
+
+- **Forecast acquisition is now step 1 of the skill's procedure, before
+  any BuildWindow call and even when the server is missing.** The sources,
+  in order: the user's own figures (no search), then a weather MCP
+  connector in the session, then the agent's search/fetch tool, and
+  finally asking the user. The "check the server" step moved to step 2.
+  Without a server, the agent now shows the forecast it gathered plus the
+  install steps, and still gives no verdict. The rules are stated
+  explicitly:
+  - always name the source;
+  - never invent a field or treat a missing one as 0;
+  - do not turn rain given in words or as a probability into
+    millimetres, ask instead;
+  - `temp_min_c` and `temp_max_c` must be two different numbers from the
+    source;
+  - unit conversion is arithmetic only, and the agent says when it
+    converted;
+  - fetching a forecast never replaces the server's verdict.
+
+  `when_to_use` gained one line with the same rules in short form. The
+  "Read first" section and the network disclosure were updated to match:
+  the forecast traffic belongs to the agent, not the server.
+- **The search step needed a concrete hint to be reliable.** On the first
+  check-3 run, web search returned conflicting, stale or monthly pages
+  (yr.no "about 135 days out of date", timeanddate "about 238 days",
+  climate pages). The agent correctly refused to average or invent and
+  asked for figures, but gave no verdict. The skill now asks for one
+  dated daily forecast for the exact place and day, for example the free,
+  keyless Open-Meteo API (`api.open-meteo.com`). It also says to skip
+  monthly or climate pages and pages marked out of date, and to never mix
+  sources. The domain is named in the network section as well, for
+  transparency in Agensi's network audit. On the re-run the agent fetched
+  Open-Meteo directly and returned a full verdict.
+- **The install is one command: `uvx --from
+  git+https://github.com/borovkov-d/buildwindow-mcp@v0.2.2
+  buildwindow-server`.** It was verified against GitHub, not assumed:
+  `claude mcp add buildwindow -- uvx --from …@v0.2.2 buildwindow-server`
+  ran verbatim from the skill text, and `claude mcp get` reported
+  `Connected` after a fresh download of the tagged release (about 20 s,
+  with `mcp`/`pydantic` already in the uv cache). The manual check
+  command printed the expected startup line, both with and without
+  `BUILDWINDOW_DATASET`. `git clone` and `uv sync` are gone from the
+  skill; the clone path stays in README as "From a clone (to edit the
+  code)".
+- **Packaging changes that made `uvx` sensible:**
+  - Added `[project.scripts] buildwindow-server = "server.main:main"`.
+  - Runtime `dependencies` are now only `mcp` and `pydantic`.
+    `claude-agent-sdk` (313 MB in the venv, because it bundles a CLI) and
+    `python-dotenv` are used only by the reference agent and
+    `scripts/list_tools.py`. They were moved to a dependency group
+    `agent`, which `[tool.uv] default-groups = ["dev", "agent"]` keeps in
+    every repo `uv sync`. Dependency groups are not part of the wheel
+    metadata, so `uvx` installs 30 packages and no SDK.
+  - The wheel now ships `server/` only, including
+    `server/data/work_types.json`, which was checked in the built wheel.
+    `agent/` remains a repo-only client and is still importable via
+    `uv run`. Publishing a module whose dependencies the package does not
+    declare was the rejected alternative.
+- **Tag `v0.2.2` and the skill text.** `v0.2.2` was pushed with the
+  packaging and install changes, before the GitHub-side checks. The
+  Open-Meteo hint above was added afterwards. It only changes
+  `SKILL.md`; the server code at `v0.2.2` is identical. The tag pins the
+  server that `uvx` downloads, while the skill text reaches buyers
+  through the ZIP built from `master`. So the published tag was not
+  rewritten and no `v0.2.3` was cut for a text-only change.
+- **Checks, all run in fresh `claude -p` sessions with the skill
+  installed from the ZIP and web search/fetch permitted:**
+  1. *No server.* Asked "чи можна завтра фарбувати фасад у Києві", the
+     agent fetched an Open-Meteo daily forecast (10.4–16.7 C, wind
+     3.52 m/s, humidity 86 % mean, precipitation 0.9 mm) and named it as
+     a model forecast, not an official service. It gave no verdict and
+     showed the one-line install. It also asked for the paint's own
+     limits and whether the job was painting or plastering.
+  2. *Literal install* from the skill text in a clean directory: verified
+     as described above.
+  3. *Same request after install:* `exterior_painting` came back
+     `prohibited`, citing humidity 86 % against the 80 % maximum and
+     precipitation 0.9 mm on a work that allows none. The answer named
+     Open-Meteo as the forecast source and the built-in example as the
+     source of the limits. The transcript is saved as
+     `docs/sample-runs/skill-session-forecast-kyiv.md`.
+  4. *Own dataset* (`-e BUILDWINDOW_DATASET=…drone_operations.json` in
+     the `uvx` registration): `lookup_work_requirements` returned
+     `dataset_is_builtin_example: false` and `dataset_file:
+     drone_operations.json`. The answer said "your file, not the built-in
+     example", and `crop_spraying` was `prohibited` on the 0.9 mm of
+     precipitation.
+  5. *Cleanup:* the test registrations were removed from `~/.claude.json`
+     (none left) and the temporary directories deleted. The uv cache was
+     left alone: it is the user's cache, and only this package's entries
+     were cleaned once to force a fresh download.

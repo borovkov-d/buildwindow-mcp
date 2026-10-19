@@ -67,9 +67,12 @@ data in and report what comes back.
       for the rest (you may offer to look the rest up).
    2. A weather MCP connector or tool in this session: query it for the
       place and dates.
-   3. A search or web-fetch tool available to you: find a forecast for the
-      place and dates, preferring a page with daily min/max temperature,
-      wind, humidity and precipitation.
+   3. A search or web-fetch tool available to you: get one dated daily
+      forecast for that exact place and day - for example the free,
+      keyless Open-Meteo forecast API (api.open-meteo.com; ask for daily
+      min/max temperature, max wind in m/s, mean humidity and precipitation
+      sum). Skip monthly or climate pages and pages marked out of date. Take
+      all fields from one source; never average or mix sources.
    4. None of these: ask the user for the figures.
 
    Hard rules for this step:
@@ -267,5 +270,7 @@ allowed value.
 when it is first started. At runtime the server makes no network calls,
 reads only the one dataset file, and needs no API keys or credentials. It
 never fetches weather. When this skill looks up a forecast (Procedure,
-step 1), it does so with the agent's own web search or weather connector,
-and that traffic belongs to the agent, not the server.
+step 1), it does so with the agent's own web search, web fetch or weather
+connector - for example a request to the public Open-Meteo API
+(api.open-meteo.com) - and that traffic belongs to the agent, not the
+server.
