@@ -1,6 +1,6 @@
 ---
 name: buildwindow
-description: Gives a deterministic go / no-go verdict on whether weather-dependent work (painting, concrete, roofing, drone flights, spraying…) can be done on a given day, and schedules several such jobs around a forecast, using weather limits the user supplies to the BuildWindow MCP server. Use when the user asks things like "can we paint the facade tomorrow?", "is it warm enough to pour concrete this week?", "can I fly the drone / spray the field on Friday?", "when is the next day calm and dry enough for…", or "plan these jobs around the weather forecast".
+description: Deterministic go/no-go verdicts for weather-dependent work, checked by the BuildWindow MCP server against weather limits the user supplies. Use when asked "can we paint the facade tomorrow?", "is it warm enough to pour concrete?", "can I fly the drone on Friday?" or "plan these jobs around the forecast".
 when_to_use:
   - The user asks whether an outdoor activity with temperature, wind, humidity or rain limits can go ahead on a specific day or days.
   - The user needs several (possibly dependent) weather-sensitive jobs placed into the earliest days the forecast allows.
@@ -8,14 +8,14 @@ when_to_use:
   - Do NOT use for general weather questions or forecasting itself; BuildWindow judges activities against a forecast, it does not produce one.
 ---
 
-# BuildWindow — deterministic weather-window planning
+# BuildWindow - deterministic weather-window planning
 
 BuildWindow is an MCP server with four tools. It answers one question
 reliably: **given these weather limits and this weather, may this work
-proceed — and if not, exactly which limit is breached and by how much?**
+proceed - and if not, exactly which limit is breached and by how much?**
 
 **Requires** the BuildWindow MCP server installed locally (open source,
-MIT; Python 3.12+ and uv; no API keys) — see Installation at the end. The
+MIT; Python 3.12+ and uv; no API keys) - see Installation at the end. The
 skill alone, without the server, can only explain how to set it up.
 
 ## Read first: what the answer depends on
@@ -24,15 +24,15 @@ skill alone, without the server, can only explain how to set it up.
   example.** The server applies the limits in the JSON dataset it was
   started with: the user's own file (set through `BUILDWINDOW_DATASET`,
   see Installation) or, if none was set, a built-in construction example
-  of 12 work types (`concrete_pour`, `exterior_painting`, …) whose
+  of 12 work types (`concrete_pour`, `exterior_painting`, ...) whose
   thresholds are **illustrative, not taken from any standard**. When
   results come from the built-in example, say so in the answer and never
   present them as compliant with a norm, a data sheet or a regulation.
 - **The verdict is only as good as the weather you pass in.** BuildWindow
-  does not fetch weather. Many forecast sources are incomplete — e.g. the
+  does not fetch weather. Many forecast sources are incomplete - e.g. the
   OpenWeather MCP server used by the repository's reference agent gives no
   precipitation at all and only the *current* wind and humidity, not
-  per-day values. If a value is missing, do not quietly treat it as 0 —
+  per-day values. If a value is missing, do not quietly treat it as 0 -
   tell the user which values were assumed or carried over, since a
   precipitation or wind limit cannot fire on data that was never there.
 - **Five dimensions only:** daily min/max temperature, wind, humidity and
@@ -63,7 +63,7 @@ data in and report what comes back.
    server is not installed: show the user the Installation section below
    and stop.
 2. **Map the user's activity to a work code.** The valid codes are the
-   `enum` of `work_code` in the tools' input schemas — they come from the
+   `enum` of `work_code` in the tools' input schemas - they come from the
    loaded dataset, so read them there; never invent one. If the request
    fits more than one code (e.g. "work on the facade" could be
    `exterior_painting` or `facade_plastering`), ask, or name the code you
@@ -71,7 +71,7 @@ data in and report what comes back.
    Then call `lookup_work_requirements` for each job: it returns the limits,
    `base_curing_hours`, and **`dataset_is_builtin_example` /
    `dataset_file`, the only reliable way to tell the built-in example from
-   the user's own file** — never infer it from `reference_note` wording. If
+   the user's own file** - never infer it from `reference_note` wording. If
    the user says they configured their own dataset but
    `dataset_is_builtin_example` is true, tell them it was not picked up
    (see "Check the dataset was loaded").
@@ -80,11 +80,11 @@ data in and report what comes back.
    connected in this session; otherwise ask the user for the forecast.
    Never make up weather. Convert to one entry per day: `date`,
    `temp_min_c`, `temp_max_c`, `wind_ms`, `humidity_pct`,
-   `precipitation_mm` (temperatures in °C, wind in m/s). Note every value
+   `precipitation_mm` (temperatures in C, wind in m/s). Note every value
    you had to assume.
-4. **One job, one or a few days** → `validate_work_window` per day.
-   **Several jobs, or "when can we…"** → one `plan_work_schedule` call with
-   all jobs and the whole forecast (1–14 days); do not walk
+4. **One job, one or a few days** -> `validate_work_window` per day.
+   **Several jobs, or "when can we..."** -> one `plan_work_schedule` call with
+   all jobs and the whole forecast (1-14 days); do not walk
    `validate_work_window` day by day yourself.
 5. For each job `unschedulable` with reason `no_suitable_window`, call
    `validate_work_window` for it on the first forecast day to get the
@@ -105,19 +105,19 @@ data in and report what comes back.
 |---|---|---|---|
 | `lookup_work_requirements` | Learn a work type's limits, or list every work type in a category | exactly one of `work_code` or `category` | `requirements[]` (full limit records, incl. `reference_note`), `matched_count`, `dataset_is_builtin_example`, `dataset_file` |
 | `validate_work_window` | Check one work against one day | `work_code`, `window` (one day of weather) | `verdict`, `violations[]`, `warnings[]` |
-| `plan_work_schedule` | Place several works across a forecast, with dependencies | `works[]` (`work_code`, `duration_days` 1–10, `depends_on[]`), `forecast[]` (1–14 days) | `scheduled[]` (dates, `worst_verdict`), `unschedulable[]` (`reason`, `detail`) |
+| `plan_work_schedule` | Place several works across a forecast, with dependencies | `works[]` (`work_code`, `duration_days` 1-10, `depends_on[]`), `forecast[]` (1-14 days) | `scheduled[]` (dates, `worst_verdict`), `unschedulable[]` (`reason`, `detail`) |
 | `estimate_curing_time` | Real ready date for a work with a curing stage | `work_code`, `daily_temps_c[]`, `start_date` | `ready_date`, or `capped=true` if the days run out first |
 
 How to read a verdict:
 
-- `prohibited` — at least one hard breach (`violations`). Any
+- `prohibited` - at least one hard breach (`violations`). Any
   precipitation on a work with `precipitation_allowed=false` is always hard.
-- `conditional` — the limit **is** breached, but only by a small margin
-  (`warnings`, within 2 °C, 1 m/s or 5 % humidity of the limit). Report it
-  as "over the limit by X — possible only with risk", with the numbers. If
+- `conditional` - the limit **is** breached, but only by a small margin
+  (`warnings`, within 2 C, 1 m/s or 5 % humidity of the limit). Report it
+  as "over the limit by X - possible only with risk", with the numbers. If
   the user's limits are hard legal or warranty limits (a product label, a
   regulation), say plainly that `conditional` means the limit is not met.
-- `allowed` — no breaches.
+- `allowed` - no breaches.
 - Each breach has `constraint`, `limit_value`, `actual_value`, `margin` and
   a readable `message`. All five checks always run, so the list is
   complete.
@@ -126,14 +126,14 @@ How to read a verdict:
 
 Errors arrive as text `[code] message`.
 
-- `unknown_work_code` / `unknown_category` — the message lists every valid
+- `unknown_work_code` / `unknown_category` - the message lists every valid
   value. Pick the intended one and retry, or ask the user. Never invent a
   code.
-- `invalid_lookup_criteria` — pass exactly one of `work_code`, `category`.
-- `cyclic_dependency` — the works' `depends_on` form a loop; tell the user
+- `invalid_lookup_criteria` - pass exactly one of `work_code`, `category`.
+- `cyclic_dependency` - the works' `depends_on` form a loop; tell the user
   which works, do not drop a dependency on your own.
-- `no_curing_stage` — this work type has no curing stage; skip curing.
-- `invalid_weather_window` or a schema validation error — the weather you
+- `no_curing_stage` - this work type has no curing stage; skip curing.
+- `invalid_weather_window` or a schema validation error - the weather you
   passed is malformed (e.g. min above max); fix it, don't guess values.
 - `unschedulable` entries are **results, not errors**: `horizon_exceeded`
   means the forecast is too short, `dependency_blocked` means a
@@ -142,14 +142,14 @@ Errors arrive as text `[code] message`.
 ## Installation (for the user, once)
 
 This skill needs the BuildWindow MCP server running locally. **Do not
-install anything yourself** — show these steps to the user and let them
+install anything yourself** - show these steps to the user and let them
 run them. Requirements: Python 3.12+ and
 [uv](https://docs.astral.sh/uv/).
 
 1. Get the server (pinned to the release this skill is written for):
 
    ```bash
-   git clone --branch v0.2.0 https://github.com/borovkov-d/buildwindow-mcp.git
+   git clone --branch v0.2.1 https://github.com/borovkov-d/buildwindow-mcp.git
    cd buildwindow-mcp
    uv sync
    ```
@@ -162,7 +162,7 @@ run them. Requirements: Python 3.12+ and
    claude mcp add buildwindow -e BUILDWINDOW_DATASET="/full/path/to/your_limits.json" -- uv --directory "/full/path/to/buildwindow-mcp" run python -m server.main
    ```
 
-   Leave out `-e BUILDWINDOW_DATASET=…` to start with the built-in
+   Leave out `-e BUILDWINDOW_DATASET=...` to start with the built-in
    construction example. Other MCP clients: same command
    (`uv --directory <repo> run python -m server.main`) and the same
    environment variable in their stdio server config. Restart the agent
@@ -197,14 +197,14 @@ run them. Requirements: Python 3.12+ and
 
 Every field is required in every record, and no other fields are allowed:
 
-- `code`, `category` — lowercase snake_case (`^[a-z][a-z0-9_]*$`); codes
+- `code`, `category` - lowercase snake_case (`^[a-z][a-z0-9_]*$`); codes
   unique.
-- `name`, `reference_note` — free text; put the source of the limits in
+- `name`, `reference_note` - free text; put the source of the limits in
   `reference_note`, it is shown to the user.
-- `temp_min_c` < `temp_max_c`, both −30…50 °C; `wind_max_ms` 0…40 m/s;
-  `humidity_max_pct` integer 0…100 (use `100` if humidity doesn't matter);
+- `temp_min_c` < `temp_max_c`, both -30...50 C; `wind_max_ms` 0...40 m/s;
+  `humidity_max_pct` integer 0...100 (use `100` if humidity doesn't matter);
   `precipitation_allowed` `true`/`false`.
-- `base_curing_hours` — positive integer, or `null` for no curing stage
+- `base_curing_hours` - positive integer, or `null` for no curing stage
   (only cementitious work uses it).
 
 When helping a user write this file, fill every field and ask for any
@@ -225,12 +225,12 @@ BUILDWINDOW_DATASET="/full/path/to/your_limits.json" uv --directory "/full/path/
 
 (PowerShell: `$env:BUILDWINDOW_DATASET="C:\path\to\your_limits.json"` on
 its own line first.) It should print
-`BuildWindow MCP server ready: 4 tools, N work types loaded from <your file>`
-— then press Ctrl+C. If it prints `12 work types loaded` without your file
+`BuildWindow MCP server ready: 4 tools, N work types loaded from <your file>`.
+Then press Ctrl+C. If it prints `12 work types loaded` without your file
 name, the server is an older version that ignores `BUILDWINDOW_DATASET`:
-re-clone with `--branch v0.2.0`. An invalid file stops the server with a
+re-clone with `--branch v0.2.1`. An invalid file stops the server with a
 list naming each record, field and allowed value.
 
 **What the server does and does not do:** it makes no network calls, reads
 only the one dataset file, and needs no API keys or credentials. It never
-fetches weather — the forecast always comes from elsewhere.
+fetches weather - the forecast always comes from elsewhere.

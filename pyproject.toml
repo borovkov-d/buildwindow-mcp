@@ -1,6 +1,6 @@
 [project]
 name = "buildwindow"
-version = "0.2.0"
+version = "0.2.1"
 description = "Deterministic weather-window planning engine as an MCP server: bring your own weather limits"
 readme = "README.md"
 requires-python = ">=3.12"

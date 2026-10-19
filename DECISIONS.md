@@ -927,3 +927,60 @@ Format: `- <question> — <decision> — <why> — <alternative rejected>`.
   file.
 - **Version stays 0.2.0** — it was never released, and the skill pins the
   tag `v0.2.0`, created on this phase's commit.
+
+## Phase 12 — shorter skill description, ASCII-only skill package
+
+- **Trigger:** in the owner's own clean-session test, the agent ran the
+  skill correctly but said the skill had no description. The suspected
+  cause was the description's length: about 480 characters in two long
+  sentences, against Agensi's "1–3 sentences" guidance.
+- **Root cause not confirmed.** In the phase-11 sessions on this machine
+  (Claude Code 2.1.240) the old description *was* delivered: the skill
+  triggered from it in 8 of 8 sessions, and the skills listing in the
+  session showed it in full. The owner's report may come from a
+  different client, version or delivery path that was not reproduced
+  here. The fix below is still worth making: a shorter description has
+  less to lose to truncation, and it fits Agensi's guidance.
+- **New description, 305 characters, two sentences:** "Deterministic
+  go/no-go verdicts for weather-dependent work, checked by the
+  BuildWindow MCP server against weather limits the user supplies. Use
+  when asked "can we paint the facade tomorrow?", "is it warm enough to
+  pour concrete?", "can I fly the drone on Friday?" or "plan these jobs
+  around the forecast"." It keeps the three required points: the verdict
+  is deterministic, the limits come from the user, and natural-language
+  trigger questions. The domain list (painting, concrete, roofing,
+  drones, spraying) was dropped, since `when_to_use` already covers it.
+  The description still contains no `: ` sequence, so the plain YAML
+  scalar stays valid; this was verified with a YAML parser.
+- **The skill package is now pure ASCII.** Both `SKILL.md` and
+  `references/dataset-format.md` were converted:
+  - `…` → `...`
+  - em dash → ` - `
+  - en dash and minus sign → `-`
+  - `→` → `->`
+  - `°C` → `C`
+
+  The files are read by different agents and parsers, and not all of
+  them handle non-ASCII the same way. Both files now decode as strict
+  ASCII. Two side effects were caught and fixed by hand:
+  - an em dash at the end of a line left a double space and a trailing
+    space;
+  - an em dash at the start of a line became ` - `, which Markdown
+    would have rendered as a stray list item. It now reads "Then press
+    Ctrl+C."
+
+  The list-item count matches the pre-conversion file (25).
+- **Verified in fresh `claude -p` sessions with the reinstalled skill:**
+  - Asked whether it sees the `buildwindow` skill and what its
+    description says, without running it, the agent paraphrased the
+    description in its own words: deterministic verdicts, user-supplied
+    limits, the example questions, and when not to use it.
+  - Given "завтра +4 і вітер 12 м/с, чи можна фарбувати фасад" with no
+    skill name, the agent invoked `buildwindow` as its first action. It
+    stated that it could not give a verdict without the server, asked
+    for the missing humidity and precipitation, and printed the install
+    steps with the new tag.
+- **Released as 0.2.1:** `pyproject.toml` was bumped, and the skill's
+  `git clone --branch` and its "re-clone" hint now point at `v0.2.1`.
+  The new tag was pushed together with `master`, since a buyer
+  following the skill clones that tag.

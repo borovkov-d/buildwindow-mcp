@@ -25,13 +25,13 @@ one record, and codes must be unique.
 |---|---|---|---|
 | `code` | string | lowercase snake_case: `^[a-z][a-z0-9_]*$` | Unique identifier, used as `work_code` in every tool |
 | `name` | string | any | Human-readable name |
-| `category` | string | lowercase snake_case | Grouping used by `lookup_work_requirements(category=…)` |
-| `temp_min_c` | number | −30 … 50, less than `temp_max_c` | Lowest air temperature (°C) at which the work may proceed |
-| `temp_max_c` | number | −30 … 50 | Highest air temperature (°C) at which the work may proceed |
-| `wind_max_ms` | number | 0 … 40 | Highest wind speed (m/s) at which the work may proceed |
-| `humidity_max_pct` | integer | 0 … 100 | Highest relative humidity (%) at which the work may proceed |
+| `category` | string | lowercase snake_case | Grouping used by `lookup_work_requirements(category=...)` |
+| `temp_min_c` | number | -30 ... 50, less than `temp_max_c` | Lowest air temperature (C) at which the work may proceed |
+| `temp_max_c` | number | -30 ... 50 | Highest air temperature (C) at which the work may proceed |
+| `wind_max_ms` | number | 0 ... 40 | Highest wind speed (m/s) at which the work may proceed |
+| `humidity_max_pct` | integer | 0 ... 100 | Highest relative humidity (%) at which the work may proceed |
 | `precipitation_allowed` | boolean | `true` / `false` | `false`: any precipitation > 0 mm is a hard violation |
-| `base_curing_hours` | integer or `null` | > 0, or `null` | Nominal curing time at 20 °C, used by `estimate_curing_time`. `null` means no curing stage. The field must be present even when `null`. |
+| `base_curing_hours` | integer or `null` | > 0, or `null` | Nominal curing time at 20 C, used by `estimate_curing_time`. `null` means no curing stage. The field must be present even when `null`. |
 | `reference_note` | string | any | Where these limits come from (standard, data sheet, manual). Shown to the user, so cite your source here. |
 
 ## Example record (drone operations domain)
@@ -65,7 +65,7 @@ For each forecast day, all five checks run:
 - precipitation, against `precipitation_allowed`
 
 A breach within the tolerance band is a **warning**, and the verdict is
-`conditional`. The bands are 2 °C for temperature, 1 m/s for wind and 5 %
+`conditional`. The bands are 2 C for temperature, 1 m/s for wind and 5 %
 for humidity. A breach beyond the band is a **violation**, and the verdict
 is `prohibited`. Precipitation has no band. The bands are fixed in the
 engine and are not set per dataset.
