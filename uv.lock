@@ -71,16 +71,18 @@ wheels = [
 
 [[package]]
 name = "buildwindow"
-version = "0.2.1"
+version = "0.2.2"
 source = { editable = "." }
 dependencies = [
-    { name = "claude-agent-sdk" },
     { name = "mcp" },
     { name = "pydantic" },
-    { name = "python-dotenv" },
 ]
 
 [package.dev-dependencies]
+agent = [
+    { name = "claude-agent-sdk" },
+    { name = "python-dotenv" },
+]
 dev = [
     { name = "black" },
     { name = "pytest" },
@@ -89,13 +91,15 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "claude-agent-sdk", specifier = ">=0.1.0" },
     { name = "mcp", specifier = ">=2.0.0" },
     { name = "pydantic", specifier = ">=2.0" },
-    { name = "python-dotenv", specifier = ">=1.0" },
 ]
 
 [package.metadata.requires-dev]
+agent = [
+    { name = "claude-agent-sdk", specifier = ">=0.1.0" },
+    { name = "python-dotenv", specifier = ">=1.0" },
+]
 dev = [
     { name = "black", specifier = ">=24.0" },
     { name = "pytest", specifier = ">=8.0" },

@@ -35,7 +35,49 @@ any weather source: a weather MCP server, an API, a file, the user
 
 ## Quick start
 
-Requirements: **Python 3.12+** and **[uv](https://docs.astral.sh/uv/)**.
+Requirements: **[uv](https://docs.astral.sh/uv/)**, which fetches a
+suitable Python by itself, and **git**.
+
+Add the server to Claude Code with one command:
+
+```bash
+claude mcp add buildwindow -- uvx --from git+https://github.com/borovkov-d/buildwindow-mcp@v0.2.2 buildwindow-server
+```
+
+With your own limits:
+
+```bash
+claude mcp add buildwindow -e BUILDWINDOW_DATASET="/full/path/to/your_limits.json" -- uvx --from git+https://github.com/borovkov-d/buildwindow-mcp@v0.2.2 buildwindow-server
+```
+
+Then restart the Claude Code session so the tools appear. `uvx` downloads
+that tagged release from GitHub once and runs it in an isolated
+environment. It installs only the server and its two dependencies, `mcp`
+and `pydantic`; the reference agent's Claude Agent SDK is not included.
+Leave out `-e BUILDWINDOW_DATASET=…` to start with the built-in example.
+Any other MCP client takes the same command (`uvx`, arguments
+`--from git+https://github.com/borovkov-d/buildwindow-mcp@v0.2.2 buildwindow-server`) and the same environment variable in
+its stdio server config.
+
+To check what the server loads, run it once by hand. It runs over stdio
+and prints one line to stderr; stop it with Ctrl+C:
+
+```bash
+BUILDWINDOW_DATASET="/full/path/to/your_limits.json" uvx --from git+https://github.com/borovkov-d/buildwindow-mcp@v0.2.2 buildwindow-server
+```
+
+```
+BuildWindow MCP server ready: 4 tools, 5 work types loaded from /full/path/to/your_limits.json
+```
+
+At runtime the server makes no network calls (`uvx` only downloads it on
+first use), reads only the one dataset file, and needs no API keys. It does
+not fetch weather itself. The [agent skill](#use-as-an-agent-skill) has the
+agent obtain a forecast and always name its source.
+
+### From a clone (to edit the code)
+
+Requirements: **Python 3.12+** and **uv**.
 
 ```bash
 git clone https://github.com/borovkov-d/buildwindow-mcp.git
@@ -44,24 +86,13 @@ uv sync
 uv run python -m server.main
 ```
 
-The server runs over stdio. On startup it prints one line to stderr:
-
-```
-BuildWindow MCP server ready: 4 tools, 12 work types loaded from <path>
-```
-
-To register it with an MCP client, for example Claude Code:
+`uv sync` also installs the dev tools and the reference agent's
+dependencies (dependency groups `dev` and `agent`). To register a clone
+instead of the released package:
 
 ```bash
-claude mcp add buildwindow -e BUILDWINDOW_DATASET=/absolute/path/to/your_limits.json -- uv --directory /absolute/path/to/buildwindow-mcp run python -m server.main
+claude mcp add buildwindow -e BUILDWINDOW_DATASET="/full/path/to/your_limits.json" -- uv --directory "/full/path/to/buildwindow-mcp" run python -m server.main
 ```
-
-Leave out `-e BUILDWINDOW_DATASET=…` to start with the built-in example.
-Any other MCP client takes the same command and environment variable in
-its stdio server config.
-
-The server makes no network calls, reads only the one dataset file, and
-needs no API keys. It does not fetch weather itself.
 
 ## Bring your own dataset
 
@@ -157,7 +188,11 @@ examples, are in [`docs/tool-contracts.md`](docs/tool-contracts.md).
 [`skill/buildwindow/`](skill/buildwindow/) is a ready `SKILL.md` package.
 It tells an agent when to reach for these tools and how to use them. It
 covers the call order, how to read verdicts, how to react to each error,
-and the rule that verdicts are never the model's own judgement. Its
+and the rule that verdicts are never the model's own judgement. It also
+says where the forecast comes from, in order: the user's own figures, a
+weather connector, the agent's web search, and finally asking the user.
+The agent always names the source, and it asks for a missing value rather
+than invent it or treat it as zero. Its
 [`references/dataset-format.md`](skill/buildwindow/references/dataset-format.md)
 documents the dataset format for the agent. To install it, zip the
 `skill/buildwindow` folder for a skill marketplace, or copy it into your
