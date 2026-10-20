@@ -177,7 +177,32 @@ yourself** - show these steps to the user and let them run them.
 Requirements: [uv](https://docs.astral.sh/uv/) (it fetches a suitable
 Python by itself) and git.
 
-1. Add the server to Claude Code with one command:
+1. **Start the server once by hand, in a terminal.** The first start
+   downloads the server and about 30 small Python packages. That takes
+   roughly half a minute to a minute, and longer on a slow connection or
+   if uv first has to download Python. Claude Code gives up on a server
+   that takes longer than about 30 seconds to connect, so do the download
+   now, separately; Claude Code then starts the server from the cache.
+
+   ```bash
+   uvx --from git+https://github.com/borovkov-d/buildwindow-mcp@v0.2.2 buildwindow-server
+   ```
+
+   You will see download lines such as `Downloading pydantic-core`,
+   `Built buildwindow @ git+https://github.com/...` and
+   `Installed 30 packages`. Then this line appears, meaning it worked:
+
+   ```
+   BuildWindow MCP server ready: 4 tools, 12 work types loaded from ...
+   ```
+
+   After that the server waits silently for a client - that is normal.
+   Press Ctrl+C to stop it. If the "ready" line never appears, read the
+   error above it first; the usual causes are git not installed or no
+   network.
+
+2. **Register it with Claude Code.** This is quick now, because the
+   download is cached:
 
    ```bash
    claude mcp add buildwindow -- uvx --from git+https://github.com/borovkov-d/buildwindow-mcp@v0.2.2 buildwindow-server
@@ -190,23 +215,19 @@ Python by itself) and git.
    claude mcp add buildwindow -e BUILDWINDOW_DATASET="/full/path/to/your_limits.json" -- uvx --from git+https://github.com/borovkov-d/buildwindow-mcp@v0.2.2 buildwindow-server
    ```
 
-   `uvx` downloads that tagged release from GitHub once and runs it in an
-   isolated environment; nothing is cloned into your project. Without
-   `-e BUILDWINDOW_DATASET=...` the server uses the built-in construction
-   example. Other MCP clients: command `uvx`, arguments
+   Without `-e BUILDWINDOW_DATASET=...` the server uses the built-in
+   construction example. Other MCP clients: command `uvx`, arguments
    `--from git+https://github.com/borovkov-d/buildwindow-mcp@v0.2.2 buildwindow-server`, and the same environment variable.
+   To confirm, `claude mcp get buildwindow` should show
+   `Status: Connected`.
 
-2. Restart the agent session so the tools appear. The first start
-   downloads the server and its two dependencies (`mcp`, `pydantic`); if
-   that first connection times out, run the check command below once and
-   restart again.
+3. **Restart the agent session** so the tools appear.
 
-3. **Bring your own limits:** write a JSON file in the format below and
-   point `BUILDWINDOW_DATASET` at it as above. To switch to another file
-   later, run `claude mcp remove buildwindow` and add it again with the new
-   path; the server reads the file once, at start.
-
-To edit the server's code instead, clone the repository - see its README.
+**Bring your own limits:** write a JSON file in the format below and point
+`BUILDWINDOW_DATASET` at it as in step 2. To switch to another file later,
+run `claude mcp remove buildwindow` and add it again with the new path; the
+server reads the file once, at start. To edit the server's code instead,
+clone the repository - see its README.
 
 ### Dataset format
 
@@ -250,24 +271,19 @@ five-mission example: `references/dataset-format.md` in this skill and
 ### Check the dataset was loaded
 
 From the agent: any `lookup_work_requirements` result has
-`dataset_is_builtin_example` (must be `false` for your own file) and
-`dataset_file` (your file's name). Or run the server once by hand with the
-same path:
-
-```bash
-BUILDWINDOW_DATASET="/full/path/to/your_limits.json" uvx --from git+https://github.com/borovkov-d/buildwindow-mcp@v0.2.2 buildwindow-server
-```
-
+`dataset_is_builtin_example` (`false` for your own file) and
+`dataset_file` (your file's name). From a terminal: run step 1's command
+with the variable set, for example
+`BUILDWINDOW_DATASET="/full/path/to/your_limits.json" uvx --from git+https://github.com/borovkov-d/buildwindow-mcp@v0.2.2 buildwindow-server`
 (PowerShell: `$env:BUILDWINDOW_DATASET="C:\path\to\your_limits.json"` on
-its own line first.) It should print
-`BuildWindow MCP server ready: 4 tools, N work types loaded from <your file>`.
-Then press Ctrl+C. If it names the built-in `work_types.json` instead, the
-variable did not reach the server - check its spelling and quotes. An
-invalid file stops the server with a list naming each record, field and
-allowed value.
+its own line first). The ready line must end with your file's path; if it
+names the built-in `work_types.json`, the variable did not reach the
+server. An invalid file stops the server with a list naming each record,
+field and allowed value.
 
 **Network use, stated plainly:** `uvx` downloads the server from GitHub
-when it is first started. At runtime the server makes no network calls,
+on its first start, and on every later start it contacts GitHub briefly to
+check which commit the tag `v0.2.2` points to. At runtime the server makes no network calls,
 reads only the one dataset file, and needs no API keys or credentials. It
 never fetches weather. When this skill looks up a forecast (Procedure,
 step 1), it does so with the agent's own web search, web fetch or weather

@@ -38,7 +38,33 @@ any weather source: a weather MCP server, an API, a file, the user
 Requirements: **[uv](https://docs.astral.sh/uv/)**, which fetches a
 suitable Python by itself, and **git**.
 
-Add the server to Claude Code with one command:
+**1. Start the server once by hand, in a terminal.** On first use, `uvx`
+downloads the tagged release from GitHub and about 30 small packages
+(`mcp`, `pydantic` and their dependencies; the reference agent's Claude
+Agent SDK is not included). On a clean cache this took 34 seconds, and it
+takes longer on a slow connection or if uv must download Python first.
+Claude Code's connection check gives up after about 30 seconds. So if you
+skip this step, the first connection fails with `Failed to connect`
+(measured, see `DECISIONS.md`, phase 14).
+
+```bash
+uvx --from git+https://github.com/borovkov-d/buildwindow-mcp@v0.2.2 buildwindow-server
+```
+
+You will see download lines such as `Downloading pydantic-core`,
+`Built buildwindow @ git+https://github.com/...` and
+`Installed 30 packages`, then:
+
+```
+BuildWindow MCP server ready: 4 tools, 12 work types loaded from ...
+```
+
+The server then waits silently on stdio for a client, which is normal.
+Press Ctrl+C. If the "ready" line never appears, the error above it says
+why (usually git missing or no network).
+
+**2. Register it with Claude Code.** This is quick now, because everything
+is cached:
 
 ```bash
 claude mcp add buildwindow -- uvx --from git+https://github.com/borovkov-d/buildwindow-mcp@v0.2.2 buildwindow-server
@@ -50,30 +76,24 @@ With your own limits:
 claude mcp add buildwindow -e BUILDWINDOW_DATASET="/full/path/to/your_limits.json" -- uvx --from git+https://github.com/borovkov-d/buildwindow-mcp@v0.2.2 buildwindow-server
 ```
 
-Then restart the Claude Code session so the tools appear. `uvx` downloads
-that tagged release from GitHub once and runs it in an isolated
-environment. It installs only the server and its two dependencies, `mcp`
-and `pydantic`; the reference agent's Claude Agent SDK is not included.
-Leave out `-e BUILDWINDOW_DATASET=…` to start with the built-in example.
-Any other MCP client takes the same command (`uvx`, arguments
+`claude mcp get buildwindow` should show `Status: Connected`. Leave out
+`-e BUILDWINDOW_DATASET=…` to start with the built-in example. Any other
+MCP client takes the same command (`uvx`, arguments
 `--from git+https://github.com/borovkov-d/buildwindow-mcp@v0.2.2 buildwindow-server`) and the same environment variable in
 its stdio server config.
 
-To check what the server loads, run it once by hand. It runs over stdio
-and prints one line to stderr; stop it with Ctrl+C:
+**3. Restart the Claude Code session** so the tools appear.
 
-```bash
-BUILDWINDOW_DATASET="/full/path/to/your_limits.json" uvx --from git+https://github.com/borovkov-d/buildwindow-mcp@v0.2.2 buildwindow-server
-```
+To check which dataset is loaded, run step 1's command with
+`BUILDWINDOW_DATASET="/full/path/to/your_limits.json"` set. The ready line
+must end with your file's path, for example
+`… 5 work types loaded from /full/path/to/your_limits.json`.
 
-```
-BuildWindow MCP server ready: 4 tools, 5 work types loaded from /full/path/to/your_limits.json
-```
-
-At runtime the server makes no network calls (`uvx` only downloads it on
-first use), reads only the one dataset file, and needs no API keys. It does
-not fetch weather itself. The [agent skill](#use-as-an-agent-skill) has the
-agent obtain a forecast and always name its source.
+The server makes no network calls of its own, reads only the one dataset
+file, and needs no API keys. `uvx` downloads it on first use, and on each
+later start contacts GitHub briefly to resolve the `v0.2.2` tag. The server
+does not fetch weather itself; the [agent skill](#use-as-an-agent-skill)
+has the agent obtain a forecast and always name its source.
 
 ### From a clone (to edit the code)
 

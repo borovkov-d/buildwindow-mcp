@@ -1080,3 +1080,62 @@ server. The server stays deterministic and offline at runtime.
      (none left) and the temporary directories deleted. The uv cache was
      left alone: it is the user's cache, and only this package's entries
      were cleaned once to force a fresh download.
+
+## Phase 14 — warm the uvx cache before Claude Code connects
+
+- **Measured, not assumed: skipping a manual first start makes the first
+  connection fail.**
+  - *How a clean machine was simulated:* each scenario got its own empty
+    `UV_CACHE_DIR` in the session scratchpad. Cleaning the 30 packages
+    by name was tried first and was not enough: `uv cache clean <pkgs>`
+    leaves the built uvx environment (`archive-v0`) behind, so the
+    "cold" start still took only 10 s with no downloads. A separate
+    empty cache also leaves the owner's own cache untouched. The Python
+    interpreter was already installed and was not removed, so a truly
+    new machine would add uv's Python download on top of these numbers.
+  - *Cold first start, step 1 run verbatim from the skill text:* 34.0 s
+    to the "ready" line. Of that, about 11 s went to fetching from GitHub
+    and resolving, before any download started. `Installed 30 packages`
+    came at 27.6 s.
+  - *Then step 2, also verbatim, on the now-warm cache:*
+    `claude mcp get buildwindow` reported `Connected` in 9.1 s,
+    including the CLI's own start.
+  - *Opposite case, a fresh empty cache with step 1 skipped:*
+    `claude mcp get` reported `Failed to connect` after 32.1 s. Its
+    health check gives up at about 30 s, while the server needs 34 s.
+    The download did complete in the background (64 MB in the cache), so
+    a retry would succeed, but a buyer sees the failure first.
+  - *Same case in a real `claude -p` session:* `buildwindow` stayed
+    "still connecting" through three tool searches, and the agent
+    answered that the tools were unavailable.
+
+  So the reordering is a real fix, not caution.
+- **The install section now runs in this order:**
+  1. Start the server once by hand. The text says why: the first start
+     downloads about 30 packages, takes roughly half a minute to a
+     minute, and Claude Code gives up after about 30 s. It also says
+     what the user will see (`Downloading …`, `Built buildwindow @ …`,
+     `Installed 30 packages`, then the "ready" line), that the silent
+     wait after it is normal, that Ctrl+C stops it, and what it means if
+     the ready line never appears.
+  2. Run `claude mcp add`, now quick, and confirm with `claude mcp get`.
+  3. Restart the session.
+
+  "Bring your own limits" and "Check the dataset was loaded" became
+  short paragraphs after the steps instead of install steps. README's
+  Quick start follows the same order and quotes the measured numbers.
+- **Correction found on the way: `uvx` contacts GitHub on every start,
+  not only the first.** A git dependency pinned to a tag is re-resolved
+  each time. With `--offline`, starting from the tag fails ("failed to
+  fetch branch or tag v0.2.2"), while starting from the full commit SHA
+  works. The tag lookup costs little time; warm starts were about 7 s
+  either way, which is Python start-up and importing `mcp`. But it means
+  every start needs network access to GitHub. The network disclosure in
+  SKILL.md and README now says so. The skill keeps pinning the tag, as
+  the owner asked. Pinning `@<full commit SHA>` would make warm starts
+  work offline, at the cost of a less readable command; that is left as
+  the owner's call.
+- **Server code unchanged, so no new tag:** the skill still points at
+  `v0.2.2`. Only `SKILL.md` and `README.md` changed; the skill package
+  is still pure ASCII and its frontmatter still parses as YAML. Test
+  registrations and the temporary caches and directories were removed.
